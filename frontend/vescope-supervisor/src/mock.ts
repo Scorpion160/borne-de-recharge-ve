@@ -1,3 +1,4 @@
+import { getFreshHubTelemetry } from './dataBridge';
 import type { AcTelemetry, AlertItem, LinkStatus, LiveSession } from './types';
 
 const now = Date.now();
@@ -56,6 +57,9 @@ export const alerts: AlertItem[] = [
 ];
 
 export function evolveTelemetry(previous: AcTelemetry): AcTelemetry {
+  const live = getFreshHubTelemetry();
+  if (live) return live;
+
   const voltage = 230 + Math.sin(previous.sequence / 9) * 1.6 + (Math.random() - 0.5) * 0.6;
   const current = 9.65 + Math.sin(previous.sequence / 6) * 0.22 + (Math.random() - 0.5) * 0.12;
   const pf = Math.min(0.99, Math.max(0.94, 0.971 + (Math.random() - 0.5) * 0.012));
