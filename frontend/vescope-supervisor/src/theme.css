@@ -1,26 +1,22 @@
 .theme-toggle {
-  position: fixed;
-  right: 22px;
-  bottom: 66px;
-  z-index: 50;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 13px;
-  border: 1px solid #29425f;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid #26394e;
   border-radius: 999px;
-  background: rgba(13, 25, 40, .96);
-  color: #dbe9f7;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .24);
+  background: transparent;
+  color: #a9b8c9;
   cursor: pointer;
-  backdrop-filter: blur(12px);
-  transition: transform .15s ease, background .2s ease, border-color .2s ease, color .2s ease;
+  transition: background .2s ease, border-color .2s ease, color .2s ease, transform .15s ease;
 }
 
 .theme-toggle:hover {
   transform: translateY(-1px);
-  background: #13243a;
+  background: #111f32;
   border-color: #4d79a6;
+  color: #e8eef7;
 }
 
 .theme-toggle:focus-visible {
@@ -29,7 +25,7 @@
 }
 
 .theme-toggle span {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -212,26 +208,35 @@
 }
 
 :root[data-theme='light'] .theme-toggle {
-  background: rgba(255, 255, 255, .96);
-  color: #22354a;
+  background: #ffffff;
+  color: #53687d;
   border-color: #cbd8e5;
-  box-shadow: 0 10px 30px rgba(32, 53, 76, .14);
 }
 
 :root[data-theme='light'] .theme-toggle:hover {
-  background: #f2f7fb;
+  background: #eef4fa;
   border-color: #92b8dc;
+  color: #22354a;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .theme-toggle {
-    right: 14px;
-    bottom: 82px;
-    padding: 10px;
+    width: 38px;
+    min-width: 38px;
+    justify-content: center;
+    padding: 8px;
   }
 
   .theme-toggle span {
     display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .theme-toggle {
+    width: 36px;
+    min-width: 36px;
+    min-height: 36px;
   }
 
   :root[data-theme='light'] .sidebar {
