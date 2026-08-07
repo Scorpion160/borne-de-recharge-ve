@@ -59,3 +59,18 @@ jobs:
         run: pip install -r simulator/vescope-core/requirements.txt
       - name: Compile simulator
         run: python -m py_compile simulator/vescope-core/simulator.py
+
+  firmware:
+    name: VE-SCOPE Core ESP32-S3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build firmware
+        run: pio run -d firmware/vescope-core-esp32
