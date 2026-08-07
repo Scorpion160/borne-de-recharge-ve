@@ -26,6 +26,35 @@ export interface HubHealth {
   timestamp: string;
 }
 
+export type TelemetryRange = '1m' | '15m' | '1h' | '24h' | '7d';
+
+export interface TelemetrySeriesPoint {
+  bucket_at: string;
+  voltage_v: number | null;
+  voltage_min_v: number | null;
+  voltage_max_v: number | null;
+  current_a: number | null;
+  current_max_a: number | null;
+  active_power_w: number | null;
+  active_power_max_w: number | null;
+  power_factor: number | null;
+  power_factor_min: number | null;
+  frequency_hz: number | null;
+  frequency_min_hz: number | null;
+  frequency_max_hz: number | null;
+  energy_start_wh: number | null;
+  energy_end_wh: number | null;
+  samples: number;
+}
+
+export interface TelemetrySeriesResponse {
+  device_id: string;
+  range: TelemetryRange;
+  range_seconds: number;
+  bucket_seconds: number;
+  items: TelemetrySeriesPoint[];
+}
+
 interface StoredEventResponse {
   id: number;
   event_at: string;
@@ -80,5 +109,16 @@ export async function fetchStoredEvents(limit = 100): Promise<AlertItem[]> {
     severity: item.severity,
     code: item.code,
     message: item.message,
+    source: item.source ?? undefined,
+    value: item.value ?? undefined,
+    threshold: item.threshold ?? undefined,
   }));
+}
+
+export async function fetchTelemetrySeries(
+  range: TelemetryRange,
+): Promise<TelemetrySeriesResponse | null> {
+  return getJson<TelemetrySeriesResponse>(
+    `/api/v1/devices/${encodeURIComponent(deviceId())}/telemetry/series?range=${range}`,
+  );
 }
