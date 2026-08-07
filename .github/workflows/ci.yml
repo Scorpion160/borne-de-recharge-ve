@@ -40,7 +40,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/vescope-hub/requirements.txt
       - name: Compile Hub
-        run: python -m py_compile backend/vescope-hub/app.py
+        run: python -m py_compile backend/vescope-hub/app.py backend/vescope-hub/storage.py backend/vescope-hub/alarms.py
+      - name: Test alarm engine
+        working-directory: backend/vescope-hub
+        run: python -m unittest test_alarms.py
 
   simulator:
     name: VE-SCOPE Core simulator
