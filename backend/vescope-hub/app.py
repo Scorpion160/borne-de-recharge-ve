@@ -10,9 +10,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from alarms import AlarmEngine
 from analytics import telemetry_series
@@ -39,15 +40,23 @@ def now_iso() -> str:
 
 
 class Utf8JsonResponse(JSONResponse):
-    """JSON UTF-8 explicite pour compatibilité avec Windows PowerShell 5.1."""
-
     media_type = "application/json; charset=utf-8"
+
+
+class AlarmSettingsPayload(BaseModel):
+    low_voltage_v: float = Field(ge=100, le=299)
+    high_voltage_v: float = Field(ge=101, le=300)
+    low_power_factor: float = Field(ge=0.1, le=1.0)
+    low_frequency_hz: float = Field(ge=40, le=69)
+    high_frequency_hz: float = Field(ge=41, le=70)
+    stale_after_s: float = Field(ge=2, le=300)
 
 
 latest: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
 clients: dict[str, set[WebSocket]] = defaultdict(set)
 database = Database()
 alarm_engine = AlarmEngine()
+settings_loaded: set[str] = set()
 
 
 async def broadcast(device_id: str, message: dict[str, Any]) -> None:
@@ -67,13 +76,16 @@ async def emit_alert(device_id: str, payload: dict[str, Any]) -> None:
     await database.save_event(device_id, payload)
     await broadcast(
         device_id,
-        {
-            "event": "alert",
-            "device_id": device_id,
-            "received_at": received_at,
-            "data": payload,
-        },
+        {"event": "alert", "device_id": device_id, "received_at": received_at, "data": payload},
     )
+
+
+async def ensure_alarm_settings(device_id: str) -> None:
+    if device_id in settings_loaded:
+        return
+    stored = await database.get_settings(device_id)
+    alarm_engine.configure(device_id, stored)
+    settings_loaded.add(device_id)
 
 
 class MqttBridge:
@@ -136,29 +148,21 @@ class MqttBridge:
         if channel == "telemetry/ac":
             self.last_telemetry_monotonic[device_id] = time.monotonic()
 
-        asyncio.run_coroutine_threadsafe(
-            self.handle(device_id, channel, payload),
-            self.loop,
-        )
+        asyncio.run_coroutine_threadsafe(self.handle(device_id, channel, payload), self.loop)
 
     async def handle(self, device_id: str, channel: str, payload: dict[str, Any]) -> None:
         received_at = now_iso()
         latest[device_id][channel] = {"received_at": received_at, "payload": payload}
-
         await database.save(device_id, channel, payload)
 
         event_name = CHANNELS[channel][0]
         await broadcast(
             device_id,
-            {
-                "event": event_name,
-                "device_id": device_id,
-                "received_at": received_at,
-                "data": payload,
-            },
+            {"event": event_name, "device_id": device_id, "received_at": received_at, "data": payload},
         )
 
         if channel == "telemetry/ac":
+            await ensure_alarm_settings(device_id)
             for alert in alarm_engine.evaluate_telemetry(device_id, payload):
                 await emit_alert(device_id, alert)
 
@@ -170,6 +174,7 @@ async def stale_monitor() -> None:
     while True:
         now = time.monotonic()
         for device_id, last_seen in list(bridge.last_telemetry_monotonic.items()):
+            await ensure_alarm_settings(device_id)
             age_s = max(0.0, now - last_seen)
             for alert in alarm_engine.evaluate_staleness(device_id, age_s):
                 await emit_alert(device_id, alert)
@@ -200,14 +205,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VE-SCOPE Hub",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
     default_response_class=Utf8JsonResponse,
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["GET", "PUT", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -217,7 +222,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
         "database_connected": database.available,
@@ -237,14 +242,8 @@ async def device_latest(device_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/v1/devices/{device_id}/telemetry")
-async def telemetry_history(
-    device_id: str,
-    limit: int = Query(default=300, ge=1, le=5000),
-) -> dict[str, Any]:
-    return {
-        "device_id": device_id,
-        "items": await database.telemetry_history(device_id, limit),
-    }
+async def telemetry_history(device_id: str, limit: int = Query(default=300, ge=1, le=5000)) -> dict[str, Any]:
+    return {"device_id": device_id, "items": await database.telemetry_history(device_id, limit)}
 
 
 @app.get("/api/v1/devices/{device_id}/telemetry/series")
@@ -257,25 +256,56 @@ async def telemetry_history_series(
 
 
 @app.get("/api/v1/devices/{device_id}/sessions")
-async def session_history(
-    device_id: str,
-    limit: int = Query(default=50, ge=1, le=500),
-) -> dict[str, Any]:
-    return {
-        "device_id": device_id,
-        "items": await database.sessions(device_id, limit),
-    }
+async def session_history(device_id: str, limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
+    return {"device_id": device_id, "items": await database.sessions(device_id, limit)}
 
 
 @app.get("/api/v1/devices/{device_id}/events")
-async def event_history(
-    device_id: str,
-    limit: int = Query(default=100, ge=1, le=1000),
-) -> dict[str, Any]:
+async def event_history(device_id: str, limit: int = Query(default=100, ge=1, le=1000)) -> dict[str, Any]:
+    return {"device_id": device_id, "items": await database.events(device_id, limit)}
+
+
+@app.get("/api/v1/devices/{device_id}/settings")
+async def get_settings(device_id: str) -> dict[str, Any]:
+    stored = await database.get_settings(device_id)
+    settings = alarm_engine.configure(device_id, stored)
+    settings_loaded.add(device_id)
     return {
         "device_id": device_id,
-        "items": await database.events(device_id, limit),
+        "alarm_thresholds": settings.as_dict(),
+        "persisted": stored is not None,
     }
+
+
+@app.put("/api/v1/devices/{device_id}/settings")
+async def put_settings(device_id: str, payload: AlarmSettingsPayload) -> dict[str, Any]:
+    try:
+        settings = alarm_engine.configure(device_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        stored = await database.save_settings(device_id, settings.as_dict())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    settings_loaded.add(device_id)
+    await emit_alert(
+        device_id,
+        {
+            "schema": 1,
+            "device_id": device_id,
+            "timestamp": now_iso(),
+            "severity": "INFO",
+            "code": "ALARM_SETTINGS_UPDATED",
+            "message": "Seuils de supervision mis à jour",
+            "source": "vescope_supervisor",
+            "value": None,
+            "threshold": None,
+            "generated_by": "vescope_hub",
+        },
+    )
+    return {"device_id": device_id, "alarm_thresholds": settings.as_dict(), "updated_at": stored["updated_at"]}
 
 
 @app.websocket("/api/v1/ws/devices/{device_id}")
@@ -283,12 +313,7 @@ async def device_ws(websocket: WebSocket, device_id: str) -> None:
     await websocket.accept()
     clients[device_id].add(websocket)
     await websocket.send_json(
-        {
-            "event": "connected",
-            "device_id": device_id,
-            "timestamp": now_iso(),
-            "snapshot": latest.get(device_id, {}),
-        }
+        {"event": "connected", "device_id": device_id, "timestamp": now_iso(), "snapshot": latest.get(device_id, {})}
     )
     try:
         while True:
