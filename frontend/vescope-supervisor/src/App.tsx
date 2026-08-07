@@ -27,6 +27,7 @@ import {
   isHubConnected,
   isHubDataLive,
 } from './dataBridge';
+import { fetchStoredEvents, fetchStoredSessions, type StoredSession } from './hubApi';
 import { alerts as simulationAlerts, evolveTelemetry, initialSession, initialTelemetry } from './mock';
 import type { AcTelemetry, AlertItem, LiveSession, StationState } from './types';
 
@@ -69,6 +70,14 @@ function stationStateLabel(state: StationState): string {
     MAINTENANCE: 'MAINTENANCE',
   };
   return labels[state];
+}
+
+function mergeEvents(...groups: AlertItem[][]): AlertItem[] {
+  const merged = groups.flat();
+  return merged
+    .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 100);
 }
 
 function MetricCard({
@@ -249,29 +258,55 @@ function Measurements({ telemetry, hubLive }: { telemetry: AcTelemetry; hubLive:
   );
 }
 
-function Sessions({ session, hubLive }: { session: LiveSession; hubLive: boolean }) {
+function Sessions({ session, hubLive, stored }: { session: LiveSession; hubLive: boolean; stored: StoredSession[] }) {
+  const rows: StoredSession[] = hubLive && stored.length > 0
+    ? stored
+    : [{
+        session_id: session.session_id,
+        state: session.state,
+        started_at: session.started_at,
+        ended_at: null,
+        duration_s: session.duration_s,
+        energy_wh: session.energy_wh,
+        average_power_w: session.average_power_w,
+        max_power_w: session.max_power_w,
+        max_current_a: session.max_current_a,
+        average_power_factor: session.average_power_factor,
+        end_reason: null,
+        updated_at: new Date().toISOString(),
+      }];
+
   return (
     <section className="panel">
       <div className="panel__title-row"><div><span className="eyebrow">HISTORIQUE</span><h2>Sessions de recharge</h2></div><History size={20} /></div>
       <div className="session-table">
         <div className="session-table__head"><span>Session</span><span>Durée</span><span>Énergie</span><span>P max</span><span>État</span></div>
-        <div className="session-table__row"><span>{session.session_id}</span><span>{formatDuration(session.duration_s)}</span><span>{(session.energy_wh / 1000).toFixed(2)} kWh</span><span>{(session.max_power_w / 1000).toFixed(2)} kW</span><span className="status-text">{hubLive ? 'En cours · Hub' : 'En cours · Simulation'}</span></div>
-        <div className="session-table__row muted"><span>VE01-20260806-142500</span><span>03:18:12</span><span>6.85 kWh</span><span>2.21 kW</span><span>Terminée</span></div>
-        <div className="session-table__row muted"><span>VE01-20260806-091200</span><span>00:24:08</span><span>0.81 kWh</span><span>2.18 kW</span><span>Interrompue</span></div>
+        {rows.map((item, index) => (
+          <div className={`session-table__row ${index > 0 ? 'muted' : ''}`} key={item.session_id}>
+            <span>{item.session_id}</span>
+            <span>{formatDuration(item.duration_s ?? 0)}</span>
+            <span>{((item.energy_wh ?? 0) / 1000).toFixed(2)} kWh</span>
+            <span>{((item.max_power_w ?? 0) / 1000).toFixed(2)} kW</span>
+            <span className={item.state === 'CHARGING' ? 'status-text' : undefined}>
+              {stationStateLabel(item.state)}
+            </span>
+          </div>
+        ))}
       </div>
     </section>
   );
 }
 
-function Alerts({ items }: { items: AlertItem[] }) {
+function Alerts({ items, hubLive }: { items: AlertItem[]; hubLive: boolean }) {
   return (
     <section className="panel">
       <div className="panel__title-row"><div><span className="eyebrow">JOURNAL</span><h2>Alarmes et événements</h2></div><ShieldCheck size={20} /></div>
       <div className="event-list">
+        {items.length === 0 && <p className="note">Aucune alarme enregistrée pour cette borne.</p>}
         {items.map((item) => (
           <div className="event" key={item.id}>
             <span className={`severity severity--${item.severity.toLowerCase()}`}>{item.severity}</span>
-            <div><strong>{item.message}</strong><small>{item.code} · {formatTime(item.timestamp)}</small></div>
+            <div><strong>{item.message}</strong><small>{item.code} · {formatTime(item.timestamp)}{hubLive ? ' · Hub' : ''}</small></div>
           </div>
         ))}
       </div>
@@ -297,6 +332,7 @@ function Diagnostics({ telemetry, hubLive, hubOnline }: { telemetry: AcTelemetry
         <div className="links-stack">
           <LinkBadge label="VE-SCOPE Hub" state={hubOnline ? 'online' : 'offline'} detail={hubOnline ? 'WebSocket connecté' : 'Hors ligne'} />
           <LinkBadge label="MQTT" state={hubLive ? 'online' : 'offline'} detail={hubLive ? 'Contrat schema 1 actif' : 'Repli simulation'} />
+          <LinkBadge label="PostgreSQL" state={hubOnline ? 'online' : 'offline'} detail={hubOnline ? 'Historisation via Hub' : 'Indisponible'} />
           <LinkBadge label="Bluetooth" state="planned" detail="Prévu sur Core" />
           <LinkBadge label="USB" state="planned" detail="Console série prévue" />
         </div>
@@ -309,6 +345,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [telemetry, setTelemetry] = useState(initialTelemetry);
   const [session, setSession] = useState(initialSession);
+  const [storedSessions, setStoredSessions] = useState<StoredSession[]>([]);
   const [hubOnline, setHubOnline] = useState(false);
   const [hubLive, setHubLive] = useState(false);
   const [stationState, setStationState] = useState<StationState>('CHARGING');
@@ -325,12 +362,10 @@ export default function App() {
       setHubLive(live);
       setStationState(live ? getHubStationState() : 'CHARGING');
 
-      const hubEvents = getHubAlerts();
-      if (hubEvents.length > 0) {
-        const merged = [...hubEvents, ...simulationAlerts].filter(
-          (item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index,
-        );
-        setEventItems(merged);
+      if (live) {
+        setEventItems((current) => mergeEvents(getHubAlerts(), current));
+      } else {
+        setEventItems(simulationAlerts);
       }
 
       setTelemetry((previous) => {
@@ -355,10 +390,32 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const refreshHistory = async () => {
+      if (!isHubConnected()) return;
+      const [sessions, events] = await Promise.all([
+        fetchStoredSessions(50),
+        fetchStoredEvents(100),
+      ]);
+      if (!mounted) return;
+      setStoredSessions(sessions);
+      setEventItems(mergeEvents(getHubAlerts(), events));
+    };
+
+    void refreshHistory();
+    const timer = window.setInterval(() => void refreshHistory(), 5000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   const content = (() => {
     if (page === 'measurements') return <Measurements telemetry={telemetry} hubLive={hubLive} />;
-    if (page === 'sessions') return <Sessions session={session} hubLive={hubLive} />;
-    if (page === 'alerts') return <Alerts items={eventItems} />;
+    if (page === 'sessions') return <Sessions session={session} hubLive={hubLive} stored={storedSessions} />;
+    if (page === 'alerts') return <Alerts items={eventItems} hubLive={hubLive} />;
     if (page === 'diagnostics') return <Diagnostics telemetry={telemetry} hubLive={hubLive} hubOnline={hubOnline} />;
     return <Dashboard telemetry={telemetry} session={session} powerHistory={powerHistory} hubLive={hubLive} hubOnline={hubOnline} stationState={stationState} />;
   })();
@@ -412,6 +469,7 @@ export default function App() {
           <div><Wifi size={15} /> Hub <strong>{hubOnline ? 'OK' : 'LOCAL'}</strong></div>
           <div><Radio size={15} /> MQTT <strong>{hubLive ? 'LIVE' : 'SIM'}</strong></div>
           <div><Gauge size={15} /> PZEM <strong>{hubLive ? 'LIVE' : 'SIMULÉ'}</strong></div>
+          <div><Database size={15} /> DB <strong>{hubOnline ? 'ACTIVE' : '—'}</strong></div>
           <div><Bluetooth size={15} /> BLE <strong>PRÉVU</strong></div>
           <span>Dernière donnée : {formatTime(telemetry.timestamp)}</span>
         </footer>
