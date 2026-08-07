@@ -5,7 +5,8 @@ import ThemeToggle from './ThemeToggle';
 import { startHubClient } from './hubClient';
 import './styles.css';
 import './theme.css';
-import './analysis.css';
+import './history.css';
+import './settings.css';
 
 startHubClient();
 
