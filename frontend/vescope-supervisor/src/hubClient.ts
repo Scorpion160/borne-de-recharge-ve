@@ -1,5 +1,11 @@
-import { setHubConnected, setHubTelemetry } from './dataBridge';
-import type { AcTelemetry } from './types';
+import {
+  pushHubAlert,
+  setHubConnected,
+  setHubSession,
+  setHubStationState,
+  setHubTelemetry,
+} from './dataBridge';
+import type { AcTelemetry, AlertItem, LiveSession, StationState } from './types';
 
 function buildWebSocketUrl(): string {
   const configured = import.meta.env.VITE_VESCOPE_HUB_WS as string | undefined;
@@ -8,6 +14,30 @@ function buildWebSocketUrl(): string {
   const deviceId = (import.meta.env.VITE_VESCOPE_DEVICE_ID as string | undefined) ?? 'borne-01';
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${protocol}://${window.location.hostname}:8003/api/v1/ws/devices/${deviceId}`;
+}
+
+function applySnapshot(snapshot: Record<string, { payload?: unknown }> | undefined): void {
+  if (!snapshot) return;
+
+  const telemetry = snapshot['telemetry/ac']?.payload as AcTelemetry | undefined;
+  const session = snapshot['session/live']?.payload as LiveSession | undefined;
+  const status = snapshot.status?.payload as { state?: StationState } | undefined;
+
+  if (telemetry) setHubTelemetry(telemetry);
+  if (session) setHubSession(session);
+  if (status?.state) setHubStationState(status.state);
+}
+
+function normalizeAlert(data: Record<string, unknown>): AlertItem {
+  const timestamp = String(data.timestamp ?? new Date().toISOString());
+  const code = String(data.code ?? 'HUB_EVENT');
+  return {
+    id: String(data.id ?? `${code}-${timestamp}`),
+    timestamp,
+    severity: (data.severity ?? 'INFO') as AlertItem['severity'],
+    code,
+    message: String(data.message ?? 'Événement reçu de VE-SCOPE Hub.'),
+  };
 }
 
 export function startHubClient(): () => void {
@@ -33,13 +63,28 @@ export function startHubClient(): () => void {
       try {
         const message = JSON.parse(event.data);
 
+        if (message.event === 'connected') {
+          applySnapshot(message.snapshot);
+          return;
+        }
+
         if (message.event === 'telemetry_ac' && message.data) {
           setHubTelemetry(message.data as AcTelemetry);
           return;
         }
 
-        if (message.event === 'connected' && message.snapshot?.['telemetry/ac']?.payload) {
-          setHubTelemetry(message.snapshot['telemetry/ac'].payload as AcTelemetry);
+        if (message.event === 'session_live' && message.data) {
+          setHubSession(message.data as LiveSession);
+          return;
+        }
+
+        if (message.event === 'status_update' && message.data?.state) {
+          setHubStationState(message.data.state as StationState);
+          return;
+        }
+
+        if (message.event === 'alert' && message.data) {
+          pushHubAlert(normalizeAlert(message.data as Record<string, unknown>));
         }
       } catch (error) {
         console.warn('[VE-SCOPE Hub] Message WebSocket invalide', error);
