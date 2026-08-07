@@ -21,6 +21,7 @@ import DiagnosticsPage from './DiagnosticsPage';
 import HistoricalAnalysis from './HistoricalAnalysis';
 import MeasurementsPage from './MeasurementsPage';
 import SessionsPage from './SessionsPage';
+import SettingsPage from './SettingsPage';
 import {
   getFreshHubSession,
   getHubAlerts,
@@ -37,9 +38,9 @@ import {
 import { alerts as simulationAlerts, evolveTelemetry, initialSession, initialTelemetry } from './mock';
 import type { AlertItem, LiveSession, StationState } from './types';
 
-type Page = 'dashboard' | 'measurements' | 'history' | 'sessions' | 'alerts' | 'diagnostics';
+type Page = 'dashboard' | 'measurements' | 'history' | 'sessions' | 'alerts' | 'diagnostics' | 'settings';
 
-const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
+const navItems: { id: Exclude<Page, 'settings'>; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Vue générale', icon: LayoutDashboard },
   { id: 'measurements', label: 'Mesures AC', icon: CircleGauge },
   { id: 'history', label: 'Historique', icon: ChartNoAxesCombined },
@@ -47,6 +48,16 @@ const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'alerts', label: 'Alarmes', icon: AlertTriangle },
   { id: 'diagnostics', label: 'Diagnostic', icon: SlidersHorizontal },
 ];
+
+const pageTitles: Record<Page, string> = {
+  dashboard: 'Vue générale',
+  measurements: 'Mesures AC',
+  history: 'Historique',
+  sessions: 'Sessions',
+  alerts: 'Alarmes',
+  diagnostics: 'Diagnostic',
+  settings: 'Paramètres',
+};
 
 function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('fr-FR', {
@@ -125,7 +136,6 @@ export default function App() {
             max_current_a: Math.max(current.max_current_a, next.current_a),
           }));
         }
-
         return next;
       });
     }, 1000);
@@ -134,25 +144,19 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-
     const refreshHistory = async () => {
       if (!isHubConnected()) {
         if (mounted) setDatabaseOnline(false);
         return;
       }
-
       const [health, sessions, events] = await Promise.all([
-        fetchHubHealth(),
-        fetchStoredSessions(100),
-        fetchStoredEvents(200),
+        fetchHubHealth(), fetchStoredSessions(100), fetchStoredEvents(200),
       ]);
       if (!mounted) return;
-
       setDatabaseOnline(Boolean(health?.database_connected));
       setStoredSessions(sessions);
       setEventItems(mergeEvents(getHubAlerts(), events));
     };
-
     void refreshHistory();
     const timer = window.setInterval(() => void refreshHistory(), 5000);
     return () => {
@@ -167,6 +171,7 @@ export default function App() {
     if (page === 'sessions') return <SessionsPage session={session} hubLive={hubLive} stored={storedSessions} />;
     if (page === 'alerts') return <AlertsPage items={eventItems} hubLive={hubLive} />;
     if (page === 'diagnostics') return <DiagnosticsPage telemetry={telemetry} hubLive={hubLive} hubOnline={hubOnline} />;
+    if (page === 'settings') return <SettingsPage hubOnline={hubOnline && databaseOnline} />;
     return (
       <DashboardPage
         telemetry={telemetry}
@@ -205,7 +210,9 @@ export default function App() {
         </div>
 
         <div className="sidebar__bottom">
-          <button><Settings size={18} /> Paramètres</button>
+          <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
+            <Settings size={18} /> <span>Paramètres</span>
+          </button>
           <div className="mode-pill"><span /> {hubLive ? 'SOURCE HUB' : 'MODE SIMULATION'}</div>
         </div>
       </aside>
@@ -214,7 +221,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">BORNE DE RECHARGE VE</span>
-            <h1>{navItems.find((item) => item.id === page)?.label}</h1>
+            <h1>{pageTitles[page]}</h1>
           </div>
           <div className="topbar__right">
             <div className="source-chip"><Cable size={16} /> borne-01 · {hubLive ? 'HUB' : 'SIM'}</div>
