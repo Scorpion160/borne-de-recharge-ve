@@ -52,4 +52,7 @@ export interface AlertItem {
   severity: 'INFO' | 'WARNING' | 'ALERT' | 'CRITICAL';
   code: string;
   message: string;
+  source?: string;
+  value?: number;
+  threshold?: number;
 }
