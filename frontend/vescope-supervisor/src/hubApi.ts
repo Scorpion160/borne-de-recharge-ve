@@ -26,6 +26,22 @@ export interface HubHealth {
   timestamp: string;
 }
 
+export interface AlarmThresholds {
+  low_voltage_v: number;
+  high_voltage_v: number;
+  low_power_factor: number;
+  low_frequency_hz: number;
+  high_frequency_hz: number;
+  stale_after_s: number;
+}
+
+export interface DeviceSettingsResponse {
+  device_id: string;
+  alarm_thresholds: AlarmThresholds;
+  persisted?: boolean;
+  updated_at?: string;
+}
+
 export type TelemetryRange = '1m' | '15m' | '1h' | '24h' | '7d';
 
 export interface TelemetrySeriesPoint {
@@ -78,9 +94,7 @@ function deviceId(): string {
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const response = await fetch(`${apiBase()}${path}`, {
-      headers: { Accept: 'application/json' },
-    });
+    const response = await fetch(`${apiBase()}${path}`, { headers: { Accept: 'application/json' } });
     if (!response.ok) return null;
     return (await response.json()) as T;
   } catch {
@@ -115,10 +129,38 @@ export async function fetchStoredEvents(limit = 100): Promise<AlertItem[]> {
   }));
 }
 
-export async function fetchTelemetrySeries(
-  range: TelemetryRange,
-): Promise<TelemetrySeriesResponse | null> {
+export async function fetchTelemetrySeries(range: TelemetryRange): Promise<TelemetrySeriesResponse | null> {
   return getJson<TelemetrySeriesResponse>(
     `/api/v1/devices/${encodeURIComponent(deviceId())}/telemetry/series?range=${range}`,
   );
+}
+
+export async function fetchDeviceSettings(): Promise<DeviceSettingsResponse | null> {
+  return getJson<DeviceSettingsResponse>(
+    `/api/v1/devices/${encodeURIComponent(deviceId())}/settings`,
+  );
+}
+
+export async function saveDeviceSettings(thresholds: AlarmThresholds): Promise<DeviceSettingsResponse> {
+  const response = await fetch(
+    `${apiBase()}/api/v1/devices/${encodeURIComponent(deviceId())}/settings`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(thresholds),
+    },
+  );
+
+  if (!response.ok) {
+    let message = `Erreur HTTP ${response.status}`;
+    try {
+      const payload = await response.json();
+      message = payload.detail ?? message;
+    } catch {
+      // Le message HTTP générique reste utilisé.
+    }
+    throw new Error(message);
+  }
+
+  return (await response.json()) as DeviceSettingsResponse;
 }
