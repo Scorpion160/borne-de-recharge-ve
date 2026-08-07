@@ -1,0 +1,23 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: vescope_mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf:ro
+
+  hub:
+    build:
+      context: ../backend/vescope-hub
+    container_name: vescope_hub
+    restart: unless-stopped
+    depends_on:
+      - mqtt
+    environment:
+      VESCOPE_MQTT_HOST: mqtt
+      VESCOPE_MQTT_PORT: "1883"
+      VESCOPE_MQTT_TOPIC_PREFIX: vescope
+    ports:
+      - "8003:8000"
