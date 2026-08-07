@@ -15,6 +15,17 @@ export interface StoredSession {
   updated_at: string;
 }
 
+export interface HubHealth {
+  ok: boolean;
+  service: string;
+  version?: string;
+  mqtt_connected: boolean;
+  mqtt_last_message_at?: string | null;
+  database_connected: boolean;
+  database_last_error?: string | null;
+  timestamp: string;
+}
+
 interface StoredEventResponse {
   id: number;
   event_at: string;
@@ -46,6 +57,10 @@ async function getJson<T>(path: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+export async function fetchHubHealth(): Promise<HubHealth | null> {
+  return getJson<HubHealth>('/health');
 }
 
 export async function fetchStoredSessions(limit = 50): Promise<StoredSession[]> {
