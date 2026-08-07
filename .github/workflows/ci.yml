@@ -61,7 +61,7 @@ jobs:
         run: python -m py_compile simulator/vescope-core/simulator.py
 
   firmware:
-    name: VE-SCOPE Core ESP32-S3
+    name: VE-SCOPE Core ESP32 targets
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -72,5 +72,7 @@ jobs:
           python-version: '3.12'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build firmware
-        run: pio run -d firmware/vescope-core-esp32
+      - name: Build ESP32 classic prototype
+        run: pio run -d firmware/vescope-core-esp32 -e esp32dev
+      - name: Build ESP32-S3 future target
+        run: pio run -d firmware/vescope-core-esp32 -e esp32-s3-devkitc-1
