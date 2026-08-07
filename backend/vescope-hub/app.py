@@ -3,14 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+from alarms import AlarmEngine
+from storage import Database
 
 MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("VESCOPE_MQTT_PORT", "1883"))
@@ -34,6 +38,8 @@ def now_iso() -> str:
 
 latest: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
 clients: dict[str, set[WebSocket]] = defaultdict(set)
+database = Database()
+alarm_engine = AlarmEngine()
 
 
 async def broadcast(device_id: str, message: dict[str, Any]) -> None:
@@ -45,6 +51,21 @@ async def broadcast(device_id: str, message: dict[str, Any]) -> None:
             stale.append(socket)
     for socket in stale:
         clients[device_id].discard(socket)
+
+
+async def emit_alert(device_id: str, payload: dict[str, Any]) -> None:
+    received_at = now_iso()
+    latest[device_id]["alerts"] = {"received_at": received_at, "payload": payload}
+    await database.save_event(device_id, payload)
+    await broadcast(
+        device_id,
+        {
+            "event": "alert",
+            "device_id": device_id,
+            "received_at": received_at,
+            "data": payload,
+        },
+    )
 
 
 class MqttBridge:
@@ -60,11 +81,13 @@ class MqttBridge:
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
+        self.last_telemetry_monotonic: dict[str, float] = {}
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
         self.client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
         self.client.loop_start()
+        print(f"[MQTT] Connecting to {MQTT_HOST}:{MQTT_PORT}", flush=True)
 
     def stop(self) -> None:
         self.client.disconnect()
@@ -72,13 +95,17 @@ class MqttBridge:
 
     def on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         self.connected = not getattr(reason_code, "is_failure", False)
+        print(f"[MQTT] Connected={self.connected} reason={reason_code}", flush=True)
         if not self.connected:
             return
         for suffix, (_, qos) in CHANNELS.items():
-            client.subscribe(f"{TOPIC_PREFIX}/+/{suffix}", qos=qos)
+            topic = f"{TOPIC_PREFIX}/+/{suffix}"
+            client.subscribe(topic, qos=qos)
+            print(f"[MQTT] Subscribe {topic} QoS={qos}", flush=True)
 
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties) -> None:
         self.connected = False
+        print(f"[MQTT] Disconnected reason={reason_code}", flush=True)
 
     def on_message(self, client, userdata, msg) -> None:
         try:
@@ -96,7 +123,11 @@ class MqttBridge:
             return
         if payload.get("device_id") not in (None, device_id):
             return
+
         self.last_message_at = now_iso()
+        if channel == "telemetry/ac":
+            self.last_telemetry_monotonic[device_id] = time.monotonic()
+
         asyncio.run_coroutine_threadsafe(
             self.handle(device_id, channel, payload),
             self.loop,
@@ -105,6 +136,9 @@ class MqttBridge:
     async def handle(self, device_id: str, channel: str, payload: dict[str, Any]) -> None:
         received_at = now_iso()
         latest[device_id][channel] = {"received_at": received_at, "payload": payload}
+
+        await database.save(device_id, channel, payload)
+
         event_name = CHANNELS[channel][0]
         await broadcast(
             device_id,
@@ -116,23 +150,50 @@ class MqttBridge:
             },
         )
 
+        if channel == "telemetry/ac":
+            for alert in alarm_engine.evaluate_telemetry(device_id, payload):
+                await emit_alert(device_id, alert)
+
 
 bridge = MqttBridge()
 
 
+async def stale_monitor() -> None:
+    while True:
+        now = time.monotonic()
+        for device_id, last_seen in list(bridge.last_telemetry_monotonic.items()):
+            age_s = max(0.0, now - last_seen)
+            for alert in alarm_engine.evaluate_staleness(device_id, age_s):
+                await emit_alert(device_id, alert)
+        await asyncio.sleep(1.0)
+
+
+async def database_reconnect_monitor() -> None:
+    while True:
+        if not database.available:
+            await database.connect(attempts=1)
+        await asyncio.sleep(10.0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await database.connect(attempts=3, delay_s=1.0)
     bridge.start(asyncio.get_running_loop())
+    stale_task = asyncio.create_task(stale_monitor())
+    db_task = asyncio.create_task(database_reconnect_monitor())
     try:
         yield
     finally:
+        stale_task.cancel()
+        db_task.cancel()
         bridge.stop()
+        await database.close()
 
 
-app = FastAPI(title="VE-SCOPE Hub", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="VE-SCOPE Hub", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -143,8 +204,11 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
+        "version": "0.2.0",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
+        "database_connected": database.available,
+        "database_last_error": database.last_error,
         "timestamp": now_iso(),
     }
 
@@ -157,6 +221,39 @@ async def devices() -> dict[str, Any]:
 @app.get("/api/v1/devices/{device_id}/latest")
 async def device_latest(device_id: str) -> dict[str, Any]:
     return {"device_id": device_id, "channels": latest.get(device_id, {})}
+
+
+@app.get("/api/v1/devices/{device_id}/telemetry")
+async def telemetry_history(
+    device_id: str,
+    limit: int = Query(default=300, ge=1, le=5000),
+) -> dict[str, Any]:
+    return {
+        "device_id": device_id,
+        "items": await database.telemetry_history(device_id, limit),
+    }
+
+
+@app.get("/api/v1/devices/{device_id}/sessions")
+async def session_history(
+    device_id: str,
+    limit: int = Query(default=50, ge=1, le=500),
+) -> dict[str, Any]:
+    return {
+        "device_id": device_id,
+        "items": await database.sessions(device_id, limit),
+    }
+
+
+@app.get("/api/v1/devices/{device_id}/events")
+async def event_history(
+    device_id: str,
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict[str, Any]:
+    return {
+        "device_id": device_id,
+        "items": await database.events(device_id, limit),
+    }
 
 
 @app.websocket("/api/v1/ws/devices/{device_id}")
