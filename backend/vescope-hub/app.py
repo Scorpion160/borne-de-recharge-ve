@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from alarms import AlarmEngine
+from analytics import telemetry_series
 from storage import Database
 
 MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
@@ -199,7 +200,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VE-SCOPE Hub",
-    version="0.2.1",
+    version="0.3.0",
     lifespan=lifespan,
     default_response_class=Utf8JsonResponse,
 )
@@ -216,7 +217,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
-        "version": "0.2.1",
+        "version": "0.3.0",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
         "database_connected": database.available,
@@ -244,6 +245,15 @@ async def telemetry_history(
         "device_id": device_id,
         "items": await database.telemetry_history(device_id, limit),
     }
+
+
+@app.get("/api/v1/devices/{device_id}/telemetry/series")
+async def telemetry_history_series(
+    device_id: str,
+    range_key: str = Query(default="15m", alias="range", pattern="^(1m|15m|1h|24h|7d)$"),
+) -> dict[str, Any]:
+    series = await telemetry_series(database, device_id, range_key)
+    return {"device_id": device_id, **series}
 
 
 @app.get("/api/v1/devices/{device_id}/sessions")
