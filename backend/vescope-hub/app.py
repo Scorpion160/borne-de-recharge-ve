@@ -12,6 +12,7 @@ from typing import Any
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from alarms import AlarmEngine
 from storage import Database
@@ -34,6 +35,12 @@ CHANNELS = {
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class Utf8JsonResponse(JSONResponse):
+    """JSON UTF-8 explicite pour compatibilité avec Windows PowerShell 5.1."""
+
+    media_type = "application/json; charset=utf-8"
 
 
 latest: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -190,7 +197,12 @@ async def lifespan(app: FastAPI):
         await database.close()
 
 
-app = FastAPI(title="VE-SCOPE Hub", version="0.2.0", lifespan=lifespan)
+app = FastAPI(
+    title="VE-SCOPE Hub",
+    version="0.2.1",
+    lifespan=lifespan,
+    default_response_class=Utf8JsonResponse,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -204,7 +216,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
         "database_connected": database.available,
