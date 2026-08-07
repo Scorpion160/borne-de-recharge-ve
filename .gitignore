@@ -4,6 +4,7 @@
 !.env.example
 secrets.yaml
 !secrets.example.yaml
+firmware/vescope-core-esp32/include/secrets.h
 
 # Node / frontend
 node_modules/
