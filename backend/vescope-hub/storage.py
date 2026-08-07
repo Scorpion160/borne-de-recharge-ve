@@ -8,7 +8,6 @@ from typing import Any
 
 import asyncpg
 
-
 DATABASE_URL = os.getenv(
     "VESCOPE_DATABASE_URL",
     "postgresql://vescope:vescope@postgres:5432/vescope",
@@ -52,7 +51,6 @@ class Database:
                 print(f"[DB] Connection attempt {attempt}/{attempts} failed: {exc}", flush=True)
                 if attempt < attempts:
                     await asyncio.sleep(delay_s)
-
         print("[DB] Starting without persistence; real-time bridge remains active", flush=True)
 
     async def close(self) -> None:
@@ -139,6 +137,18 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_events_device_time
             ON events(device_id, event_at DESC)
             """,
+            """
+            CREATE TABLE IF NOT EXISTS device_settings (
+                device_id TEXT PRIMARY KEY,
+                low_voltage_v DOUBLE PRECISION NOT NULL,
+                high_voltage_v DOUBLE PRECISION NOT NULL,
+                low_power_factor DOUBLE PRECISION NOT NULL,
+                low_frequency_hz DOUBLE PRECISION NOT NULL,
+                high_frequency_hz DOUBLE PRECISION NOT NULL,
+                stale_after_s DOUBLE PRECISION NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
         ]
         async with self.pool.acquire() as conn:
             for statement in statements:
@@ -175,11 +185,7 @@ class Database:
                 received_at = NOW(),
                 raw = EXCLUDED.raw
             """,
-            device_id,
-            payload.get("online"),
-            payload.get("state"),
-            payload.get("firmware"),
-            json.dumps(payload),
+            device_id, payload.get("online"), payload.get("state"), payload.get("firmware"), json.dumps(payload),
         )
 
     async def _save_telemetry(self, device_id: str, payload: dict[str, Any]) -> None:
@@ -190,24 +196,14 @@ class Database:
                 device_id, measured_at, sequence, quality, voltage_v, current_a,
                 active_power_w, apparent_power_va, non_active_power_var_est,
                 power_factor, frequency_hz, energy_total_wh, raw
-            ) VALUES(
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb
-            )
+            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
             ON CONFLICT(device_id, sequence) DO NOTHING
             """,
             device_id,
             parse_timestamp(payload.get("timestamp")),
-            payload.get("sequence"),
-            payload.get("quality"),
-            payload.get("voltage_v"),
-            payload.get("current_a"),
-            payload.get("active_power_w"),
-            payload.get("apparent_power_va"),
-            payload.get("non_active_power_var_est"),
-            payload.get("power_factor"),
-            payload.get("frequency_hz"),
-            payload.get("energy_total_wh"),
-            json.dumps(payload),
+            payload.get("sequence"), payload.get("quality"), payload.get("voltage_v"), payload.get("current_a"),
+            payload.get("active_power_w"), payload.get("apparent_power_va"), payload.get("non_active_power_var_est"),
+            payload.get("power_factor"), payload.get("frequency_hz"), payload.get("energy_total_wh"), json.dumps(payload),
         )
 
     async def _save_session(self, device_id: str, payload: dict[str, Any], summary: bool) -> None:
@@ -236,19 +232,11 @@ class Database:
                 updated_at = NOW(),
                 raw = EXCLUDED.raw
             """,
-            session_id,
-            device_id,
-            payload.get("state"),
+            session_id, device_id, payload.get("state"),
             parse_timestamp(payload.get("started_at")) if payload.get("started_at") else None,
-            ended_at,
-            payload.get("duration_s"),
-            payload.get("energy_wh"),
-            payload.get("average_power_w"),
-            payload.get("max_power_w"),
-            payload.get("max_current_a"),
-            payload.get("average_power_factor"),
-            payload.get("end_reason") or payload.get("end_cause"),
-            json.dumps(payload),
+            ended_at, payload.get("duration_s"), payload.get("energy_wh"), payload.get("average_power_w"),
+            payload.get("max_power_w"), payload.get("max_current_a"), payload.get("average_power_factor"),
+            payload.get("end_reason") or payload.get("end_cause"), json.dumps(payload),
         )
 
     async def save_event(self, device_id: str, payload: dict[str, Any]) -> None:
@@ -256,19 +244,12 @@ class Database:
             return
         await self.pool.execute(
             """
-            INSERT INTO events(
-                device_id, event_at, severity, code, message, source, value, threshold, raw
-            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+            INSERT INTO events(device_id, event_at, severity, code, message, source, value, threshold, raw)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
             """,
-            device_id,
-            parse_timestamp(payload.get("timestamp")),
-            payload.get("severity", "INFO"),
-            payload.get("code", "EVENT"),
-            payload.get("message", "Événement VE-SCOPE"),
-            payload.get("source"),
-            payload.get("value"),
-            payload.get("threshold"),
-            json.dumps(payload),
+            device_id, parse_timestamp(payload.get("timestamp")), payload.get("severity", "INFO"),
+            payload.get("code", "EVENT"), payload.get("message", "Événement VE-SCOPE"), payload.get("source"),
+            payload.get("value"), payload.get("threshold"), json.dumps(payload),
         )
 
     async def telemetry_history(self, device_id: str, limit: int) -> list[dict[str, Any]]:
@@ -277,15 +258,10 @@ class Database:
         rows = await self.pool.fetch(
             """
             SELECT measured_at, sequence, quality, voltage_v, current_a, active_power_w,
-                   apparent_power_va, non_active_power_var_est, power_factor, frequency_hz,
-                   energy_total_wh
-            FROM telemetry_ac
-            WHERE device_id=$1
-            ORDER BY measured_at DESC
-            LIMIT $2
+                   apparent_power_va, non_active_power_var_est, power_factor, frequency_hz, energy_total_wh
+            FROM telemetry_ac WHERE device_id=$1 ORDER BY measured_at DESC LIMIT $2
             """,
-            device_id,
-            limit,
+            device_id, limit,
         )
         return [dict(row) for row in rows]
 
@@ -295,15 +271,10 @@ class Database:
         rows = await self.pool.fetch(
             """
             SELECT session_id, state, started_at, ended_at, duration_s, energy_wh,
-                   average_power_w, max_power_w, max_current_a, average_power_factor,
-                   end_reason, updated_at
-            FROM charging_sessions
-            WHERE device_id=$1
-            ORDER BY started_at DESC NULLS LAST
-            LIMIT $2
+                   average_power_w, max_power_w, max_current_a, average_power_factor, end_reason, updated_at
+            FROM charging_sessions WHERE device_id=$1 ORDER BY started_at DESC NULLS LAST LIMIT $2
             """,
-            device_id,
-            limit,
+            device_id, limit,
         )
         return [dict(row) for row in rows]
 
@@ -313,12 +284,47 @@ class Database:
         rows = await self.pool.fetch(
             """
             SELECT id, event_at, severity, code, message, source, value, threshold
-            FROM events
-            WHERE device_id=$1
-            ORDER BY event_at DESC
-            LIMIT $2
+            FROM events WHERE device_id=$1 ORDER BY event_at DESC LIMIT $2
             """,
-            device_id,
-            limit,
+            device_id, limit,
         )
         return [dict(row) for row in rows]
+
+    async def get_settings(self, device_id: str) -> dict[str, Any] | None:
+        if not self.available or self.pool is None:
+            return None
+        row = await self.pool.fetchrow(
+            """
+            SELECT low_voltage_v, high_voltage_v, low_power_factor,
+                   low_frequency_hz, high_frequency_hz, stale_after_s, updated_at
+            FROM device_settings WHERE device_id=$1
+            """,
+            device_id,
+        )
+        return dict(row) if row else None
+
+    async def save_settings(self, device_id: str, settings: dict[str, Any]) -> dict[str, Any]:
+        if not self.available or self.pool is None:
+            raise RuntimeError("PostgreSQL indisponible")
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO device_settings(
+                device_id, low_voltage_v, high_voltage_v, low_power_factor,
+                low_frequency_hz, high_frequency_hz, stale_after_s, updated_at
+            ) VALUES($1,$2,$3,$4,$5,$6,$7,NOW())
+            ON CONFLICT(device_id) DO UPDATE SET
+                low_voltage_v=EXCLUDED.low_voltage_v,
+                high_voltage_v=EXCLUDED.high_voltage_v,
+                low_power_factor=EXCLUDED.low_power_factor,
+                low_frequency_hz=EXCLUDED.low_frequency_hz,
+                high_frequency_hz=EXCLUDED.high_frequency_hz,
+                stale_after_s=EXCLUDED.stale_after_s,
+                updated_at=NOW()
+            RETURNING low_voltage_v, high_voltage_v, low_power_factor,
+                      low_frequency_hz, high_frequency_hz, stale_after_s, updated_at
+            """,
+            device_id,
+            settings["low_voltage_v"], settings["high_voltage_v"], settings["low_power_factor"],
+            settings["low_frequency_hz"], settings["high_frequency_hz"], settings["stale_after_s"],
+        )
+        return dict(row)
