@@ -5,25 +5,36 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.1.1-hw";
+constexpr char FIRMWARE_VERSION[] = "0.1.2-hw";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
 // -----------------------------------------------------------------------------
-// Prototype actuel : ESP32 classique DevKit / WROOM-32.
-// Cible future conservée : ESP32-S3 DevKitC-1.
-// Les macros sont injectées par platformio.ini.
 #if defined(VESCOPE_BOARD_CLASSIC)
-constexpr char BOARD_NAME[] = "ESP32 DevKit / WROOM-32";
-constexpr int PZEM_RX_PIN = 16;  // PZEM TX -> adaptation de niveau -> ESP32 RX2
-constexpr int PZEM_TX_PIN = 17;  // ESP32 TX2 -> PZEM RX
+constexpr char BOARD_NAME[] = "ESP32 DevKit V1 / WROOM-32";
+constexpr int PZEM_RX_PIN = 16;   // PCB: PZEM TX -> ESP32 RX2
+constexpr int PZEM_TX_PIN = 17;   // PCB: ESP32 TX2 -> PZEM RX
+constexpr int OLED_SDA_PIN = 21;  // PCB: SDA_OLED -> D21
+constexpr int OLED_SCL_PIN = 22;  // PCB: SCL_OLED -> D22
+constexpr int RGB_R_PIN = 25;     // PCB: R_RGB -> D25
+constexpr int RGB_G_PIN = 26;     // PCB: G_RGB -> D26
+constexpr int RGB_B_PIN = 27;     // PCB: B_RGB -> D27
 #elif defined(VESCOPE_BOARD_S3)
 constexpr char BOARD_NAME[] = "ESP32-S3 DevKitC-1";
-constexpr int PZEM_RX_PIN = 18;  // PZEM TX -> adaptation de niveau -> ESP32 RX
-constexpr int PZEM_TX_PIN = 17;  // ESP32 TX -> PZEM RX
+constexpr int PZEM_RX_PIN = 18;
+constexpr int PZEM_TX_PIN = 17;
+constexpr int OLED_SDA_PIN = 8;
+constexpr int OLED_SCL_PIN = 9;
+constexpr int RGB_R_PIN = 10;
+constexpr int RGB_G_PIN = 11;
+constexpr int RGB_B_PIN = 12;
 #else
 #error "Cible VE-SCOPE inconnue : utiliser esp32dev ou esp32-s3-devkitc-1"
 #endif
+
+constexpr uint8_t OLED_I2C_ADDRESS = 0x3C;
+constexpr int OLED_WIDTH = 128;
+constexpr int OLED_HEIGHT = 64;
 
 // PZEM-004T v3 / Modbus RTU
 constexpr uint8_t PZEM_ADDRESS = 0xF8;
