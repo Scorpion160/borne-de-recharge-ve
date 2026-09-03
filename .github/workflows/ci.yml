@@ -72,6 +72,8 @@ jobs:
           python-version: '3.12'
       - name: Install PlatformIO
         run: pip install platformio
+      - name: Build ESP32 PCB board-test
+        run: pio run -d firmware/vescope-core-esp32 -e esp32dev-board-test
       - name: Build ESP32 classic prototype
         run: pio run -d firmware/vescope-core-esp32 -e esp32dev
       - name: Build ESP32-S3 future target
