@@ -13,7 +13,9 @@ function buildWebSocketUrl(): string {
 
   const deviceId = (import.meta.env.VITE_VESCOPE_DEVICE_ID as string | undefined) ?? 'borne-01';
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${protocol}://${window.location.hostname}:8003/api/v1/ws/devices/${deviceId}`;
+  const isDevPort = window.location.port === '5173' || window.location.port === '5174';
+  const authority = isDevPort ? `${window.location.hostname}:8003` : window.location.host;
+  return `${protocol}://${authority}/api/v1/ws/devices/${deviceId}`;
 }
 
 function applySnapshot(snapshot: Record<string, { payload?: unknown }> | undefined): void {
