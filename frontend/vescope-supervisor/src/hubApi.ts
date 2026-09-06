@@ -43,6 +43,7 @@ export interface DeviceSettingsResponse {
 }
 
 export type TelemetryRange = '1m' | '15m' | '1h' | '24h' | '7d';
+export type CsvTelemetryRange = '1h' | '24h' | '7d' | '30d';
 
 export interface TelemetrySeriesPoint {
   bucket_at: string;
@@ -163,4 +164,17 @@ export async function saveDeviceSettings(thresholds: AlarmThresholds): Promise<D
   }
 
   return (await response.json()) as DeviceSettingsResponse;
+}
+
+
+export function telemetryCsvUrl(range: CsvTelemetryRange): string {
+  return `${apiBase()}/api/v1/devices/${encodeURIComponent(deviceId())}/exports/telemetry.csv?range=${range}`;
+}
+
+export function sessionsCsvUrl(): string {
+  return `${apiBase()}/api/v1/devices/${encodeURIComponent(deviceId())}/exports/sessions.csv`;
+}
+
+export function eventsCsvUrl(): string {
+  return `${apiBase()}/api/v1/devices/${encodeURIComponent(deviceId())}/exports/events.csv`;
 }
