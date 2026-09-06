@@ -1,0 +1,30 @@
+.data-logger-page { display: grid; gap: 22px; }
+.logger-hero > p, .logger-card p, .logger-retention p { color: #7f97af; line-height: 1.6; margin: 12px 0 0; }
+.logger-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.logger-status { border: 1px solid #22384d; border-radius: 12px; padding: 14px 16px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.logger-status span { color: #7f97af; }
+.logger-status strong { font-size: .95rem; }
+.logger-status.ok strong { color: #57d58b; }
+.logger-status.warn strong { color: #f0b35a; }
+.logger-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.logger-card { display: flex; flex-direction: column; min-height: 330px; }
+.logger-card h3, .logger-retention h3 { margin: 6px 0 0; font-size: 1.2rem; }
+.logger-card__icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: #102d49; color: #59aefe; margin-bottom: 18px; }
+.logger-range { display: grid; gap: 7px; margin-top: 18px; }
+.logger-range > span { color: #a7bacd; font-size: .9rem; }
+.logger-range select { min-height: 42px; border-radius: 10px; border: 1px solid #284057; background: #091728; color: #e9f1f8; padding: 0 12px; }
+.logger-range small { color: #718aa2; }
+.logger-spacer { flex: 1; min-height: 54px; }
+.logger-download { margin-top: auto; display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; border-radius: 11px; border: 1px solid #2b78b9; background: #123454; color: #e9f4ff; text-decoration: none; font-weight: 700; transition: .2s ease; }
+.logger-download:hover { background: #18466f; border-color: #58aef7; transform: translateY(-1px); }
+.logger-download.disabled { opacity: .45; pointer-events: none; }
+.logger-retention { display: grid; grid-template-columns: minmax(240px, .8fr) 2fr; align-items: start; gap: 30px; }
+:root[data-theme='light'] .logger-hero > p, :root[data-theme='light'] .logger-card p, :root[data-theme='light'] .logger-retention p { color: #647a91; }
+:root[data-theme='light'] .logger-status { border-color: #d9e3ec; background: #fbfdff; }
+:root[data-theme='light'] .logger-status span, :root[data-theme='light'] .logger-range > span, :root[data-theme='light'] .logger-range small { color: #637a91; }
+:root[data-theme='light'] .logger-card__icon { background: #e8f4ff; color: #2479bd; }
+:root[data-theme='light'] .logger-range select { background: #ffffff; color: #162235; border-color: #cbd9e6; }
+:root[data-theme='light'] .logger-download { background: #e8f4ff; border-color: #8ebde4; color: #155f99; }
+:root[data-theme='light'] .logger-download:hover { background: #d8edff; border-color: #4d9ddd; }
+@media (max-width: 1100px) { .logger-grid { grid-template-columns: 1fr; } .logger-card { min-height: 0; } .logger-status-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .logger-retention { grid-template-columns: 1fr; gap: 8px; } .logger-status { align-items: flex-start; flex-direction: column; } }
