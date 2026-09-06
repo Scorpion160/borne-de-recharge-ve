@@ -1,0 +1,35 @@
+# Secrets
+.env
+.env.*
+!.env.example
+secrets.yaml
+!secrets.example.yaml
+firmware/vescope-core-esp32/include/secrets.h
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ESPHome / PlatformIO
+.esphome/
+.pio/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and generated data
+*.log
+data/*.csv
+data/*.jsonl

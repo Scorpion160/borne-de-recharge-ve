@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  supervisor:
+    name: VE-SCOPE Supervisor
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/vescope-supervisor
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/vescope-supervisor/package.json
+      - name: Install dependencies
+        run: npm install
+      - name: Build
+        run: npm run build
+
+  hub:
+    name: VE-SCOPE Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r backend/vescope-hub/requirements.txt
+      - name: Compile Hub
+        run: python -m py_compile backend/vescope-hub/app.py backend/vescope-hub/storage.py backend/vescope-hub/alarms.py backend/vescope-hub/analytics.py backend/vescope-hub/exports.py
+      - name: Test alarm engine
+        working-directory: backend/vescope-hub
+        run: python -m unittest test_alarms.py
+
+  simulator:
+    name: VE-SCOPE Core simulator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r simulator/vescope-core/requirements.txt
+      - name: Compile simulator
+        run: python -m py_compile simulator/vescope-core/simulator.py
+
+  firmware:
+    name: VE-SCOPE Core ESP32 targets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build ESP32 PCB board-test
+        run: pio run -d firmware/vescope-core-esp32 -e esp32dev-board-test
+      - name: Build ESP32 classic prototype
+        run: pio run -d firmware/vescope-core-esp32 -e esp32dev
+      - name: Build ESP32-S3 future target
+        run: pio run -d firmware/vescope-core-esp32 -e esp32-s3-devkitc-1
