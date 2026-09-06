@@ -12,11 +12,12 @@ from typing import Any
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from alarms import AlarmEngine
 from analytics import telemetry_series
+from exports import events_csv, sessions_csv, telemetry_csv
 from storage import Database
 
 MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
@@ -205,7 +206,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VE-SCOPE Hub",
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
     default_response_class=Utf8JsonResponse,
 )
@@ -222,7 +223,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
         "database_connected": database.available,
@@ -263,6 +264,51 @@ async def session_history(device_id: str, limit: int = Query(default=50, ge=1, l
 @app.get("/api/v1/devices/{device_id}/events")
 async def event_history(device_id: str, limit: int = Query(default=100, ge=1, le=1000)) -> dict[str, Any]:
     return {"device_id": device_id, "items": await database.events(device_id, limit)}
+
+
+@app.get("/api/v1/devices/{device_id}/exports/telemetry.csv")
+async def export_telemetry_csv(
+    device_id: str,
+    range_key: str = Query(default="24h", alias="range", pattern="^(1h|24h|7d|30d)$"),
+) -> Response:
+    try:
+        content = await telemetry_csv(database, device_id, range_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    filename = f"vescope_{device_id}_telemetry_{range_key}.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/devices/{device_id}/exports/sessions.csv")
+async def export_sessions_csv(device_id: str) -> Response:
+    try:
+        content = await sessions_csv(database, device_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    filename = f"vescope_{device_id}_sessions.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/devices/{device_id}/exports/events.csv")
+async def export_events_csv(device_id: str) -> Response:
+    try:
+        content = await events_csv(database, device_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    filename = f"vescope_{device_id}_events.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/v1/devices/{device_id}/settings")
