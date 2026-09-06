@@ -18,6 +18,7 @@ import {
 import AlertsPage from './AlertsPage';
 import DashboardPage from './DashboardPage';
 import DiagnosticsPage from './DiagnosticsPage';
+import DataLoggerPage from './DataLoggerPage';
 import HistoricalAnalysis from './HistoricalAnalysis';
 import MeasurementsPage from './MeasurementsPage';
 import SessionsPage from './SessionsPage';
@@ -38,12 +39,13 @@ import {
 import { alerts as simulationAlerts, evolveTelemetry, initialSession, initialTelemetry } from './mock';
 import type { AlertItem, LiveSession, StationState } from './types';
 
-type Page = 'dashboard' | 'measurements' | 'history' | 'sessions' | 'alerts' | 'diagnostics' | 'settings';
+type Page = 'dashboard' | 'measurements' | 'history' | 'data' | 'sessions' | 'alerts' | 'diagnostics' | 'settings';
 
 const navItems: { id: Exclude<Page, 'settings'>; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Vue générale', icon: LayoutDashboard },
   { id: 'measurements', label: 'Mesures AC', icon: CircleGauge },
   { id: 'history', label: 'Historique', icon: ChartNoAxesCombined },
+  { id: 'data', label: 'Données', icon: Database },
   { id: 'sessions', label: 'Sessions', icon: History },
   { id: 'alerts', label: 'Alarmes', icon: AlertTriangle },
   { id: 'diagnostics', label: 'Diagnostic', icon: SlidersHorizontal },
@@ -53,6 +55,7 @@ const pageTitles: Record<Page, string> = {
   dashboard: 'Vue générale',
   measurements: 'Mesures AC',
   history: 'Historique',
+  data: 'Données',
   sessions: 'Sessions',
   alerts: 'Alarmes',
   diagnostics: 'Diagnostic',
@@ -168,6 +171,7 @@ export default function App() {
   const content = (() => {
     if (page === 'measurements') return <MeasurementsPage telemetry={telemetry} hubLive={hubLive} />;
     if (page === 'history') return <HistoricalAnalysis />;
+    if (page === 'data') return <DataLoggerPage hubOnline={hubOnline} databaseOnline={databaseOnline} />;
     if (page === 'sessions') return <SessionsPage session={session} hubLive={hubLive} stored={storedSessions} />;
     if (page === 'alerts') return <AlertsPage items={eventItems} hubLive={hubLive} />;
     if (page === 'diagnostics') return <DiagnosticsPage telemetry={telemetry} hubLive={hubLive} hubOnline={hubOnline} />;
