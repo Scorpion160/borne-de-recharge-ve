@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import timedelta
 from typing import Any
 
 from storage import Database
 
 
 RANGES = {
-    "1h": ("1 hour", None),
-    "24h": ("24 hours", None),
-    "7d": ("7 days", "1 minute"),
-    "30d": ("30 days", "5 minutes"),
+    "1h": (timedelta(hours=1), None, "raw"),
+    "24h": (timedelta(hours=24), None, "raw"),
+    "7d": (timedelta(days=7), timedelta(minutes=1), "1 minute"),
+    "30d": (timedelta(days=30), timedelta(minutes=5), "5 minutes"),
 }
 
 
@@ -25,7 +26,7 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
     if not database.available or database.pool is None:
         raise RuntimeError("PostgreSQL indisponible")
 
-    interval, bucket = RANGES[range_key]
+    interval, bucket, resolution = RANGES[range_key]
     stream, writer = _csv_buffer()
     writer.writerow([
         "timestamp_utc",
@@ -62,7 +63,7 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
                 row["frequency_hz"],
                 row["energy_total_wh"],
                 1,
-                "raw",
+                resolution,
             ])
     else:
         rows = await database.pool.fetch(
@@ -96,7 +97,7 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
                 row["frequency_hz"],
                 row["energy_total_wh"],
                 row["samples"],
-                bucket,
+                resolution,
             ])
 
     return stream.getvalue()
