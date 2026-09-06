@@ -86,7 +86,8 @@ interface StoredEventResponse {
 function apiBase(): string {
   const configured = import.meta.env.VITE_VESCOPE_HUB_HTTP as string | undefined;
   if (configured) return configured.replace(/\/$/, '');
-  return `${window.location.protocol}//${window.location.hostname}:8003`;
+  const isDevPort = window.location.port === '5173' || window.location.port === '5174';
+  return isDevPort ? `${window.location.protocol}//${window.location.hostname}:8003` : window.location.origin;
 }
 
 function deviceId(): string {
