@@ -6,7 +6,9 @@
 #include <time.h>
 #include <sys/time.h>
 
+#include "ble_service.h"
 #include "config.h"
+#include "field_connectivity.h"
 #include "pzem_modbus.h"
 
 #if __has_include("secrets.h")
@@ -22,6 +24,8 @@ PzemModbus pzem(pzem_uart, PZEM_ADDRESS, PZEM_TIMEOUT_MS);
 WiFiClient wifi_client;
 PubSubClient mqtt(wifi_client);
 WebServer web(80);
+BleService ble;
+FieldConnectivity connectivity;
 
 PzemMeasurement last_measurement;
 bool have_measurement = false;
@@ -30,7 +34,6 @@ uint32_t last_measurement_ms = 0;
 uint32_t last_telemetry_ms = 0;
 uint32_t last_status_ms = 0;
 uint32_t last_diagnostics_ms = 0;
-uint32_t last_wifi_retry_ms = 0;
 uint32_t last_mqtt_attempt_ms = 0;
 uint32_t mqtt_retry_ms = MQTT_RETRY_MIN_MS;
 
@@ -164,7 +167,12 @@ void publishStatus() {
   doc["state"] = stationState();
   doc["firmware"] = FIRMWARE_VERSION;
   doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < 3000);
-  publishJson(topic("status"), doc, true);
+  doc["transport_wifi"] = connectivity.staConnected();
+  doc["transport_ap"] = connectivity.apActive();
+  doc["transport_ble"] = ble.connected();
+  const String payload = jsonString(doc);
+  ble.updateStatus(payload);
+  if (mqtt.connected()) mqtt.publish(topic("status").c_str(), payload.c_str(), true);
 }
 
 void publishDiagnostics() {
@@ -178,8 +186,11 @@ void publishDiagnostics() {
   doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
   doc["wifi_rssi_dbm"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127;
   doc["wifi_ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
-  doc["ap_ip"] = WiFi.softAPIP().toString();
+  doc["ap_ip"] = connectivity.apIp();
+  doc["fallback_ap_active"] = connectivity.apActive();
+  doc["mdns"] = connectivity.mdnsHost() + ".local";
   doc["mqtt_connected"] = mqtt.connected();
+  doc["ble_connected"] = ble.connected();
   doc["pzem_reads_ok"] = pzem.successCount();
   doc["pzem_errors"] = pzem.errorCount();
   doc["pzem_last_error"] = pzem.lastError();
@@ -296,17 +307,10 @@ void publishTelemetry(const PzemMeasurement& m) {
   // USB série : une trame JSON par ligne, directement exploitable par un PC.
   Serial.println(payload);
 
+  ble.updateTelemetry(payload);
   if (mqtt.connected()) {
     mqtt.publish(topic("telemetry/ac").c_str(), payload.c_str(), false);
   }
-}
-
-void connectWifiIfNeeded() {
-  if (WiFi.status() == WL_CONNECTED) return;
-  if (millis() - last_wifi_retry_ms < WIFI_RETRY_MS) return;
-  last_wifi_retry_ms = millis();
-  logLine("Wi-Fi STA connecting...");
-  WiFi.begin(VESCOPE_WIFI_SSID, VESCOPE_WIFI_PASSWORD);
 }
 
 void connectMqttIfNeeded() {
@@ -349,9 +353,12 @@ String statusJson() {
   doc["firmware"] = FIRMWARE_VERSION;
   doc["state"] = stationState();
   doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
-  doc["wifi_ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
-  doc["ap_ip"] = WiFi.softAPIP().toString();
+  doc["wifi_ip"] = connectivity.staIp();
+  doc["ap_active"] = connectivity.apActive();
+  doc["ap_ip"] = connectivity.apIp();
+  doc["mdns"] = connectivity.mdnsHost() + ".local";
   doc["mqtt_connected"] = mqtt.connected();
+  doc["ble_connected"] = ble.connected();
   doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < 3000);
   doc["uptime_s"] = millis() / 1000;
   return jsonString(doc);
@@ -377,11 +384,21 @@ void configureWebServer() {
   web.on("/api/telemetry", HTTP_GET, []() {
     web.send(200, "application/json; charset=utf-8", telemetryJson());
   });
+  web.on("/api/session", HTTP_GET, []() {
+    JsonDocument doc;
+    doc["schema"] = 1;
+    doc["device_id"] = DEVICE_ID;
+    doc["active"] = session.active;
+    doc["session_id"] = session.id;
+    doc["state"] = stationState();
+    if (session.active && have_measurement) fillSession(doc, last_measurement, false);
+    web.send(200, "application/json; charset=utf-8", jsonString(doc));
+  });
   web.on("/", HTTP_GET, []() {
     const char page[] PROGMEM = R"HTML(
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VE-SCOPE Core</title><style>body{font-family:system-ui;background:#071321;color:#e9f1fa;margin:0;padding:24px}main{max-width:760px;margin:auto}.card{background:#0d1d2f;border:1px solid #243b55;border-radius:16px;padding:20px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.v{font-size:1.7rem;font-weight:700}small{color:#8fa7bf}code{color:#7fc4ff}</style></head>
-<body><main><h1>VE-SCOPE Core</h1><p>Interface locale de diagnostic ESP32-S3 / PZEM-004T.</p><div id="status" class="card">Chargement...</div><div id="values" class="grid"></div><div class="card"><small>API locale</small><p><code>/api/status</code><br><code>/api/telemetry</code></p></div></main>
+<body><main><h1>VE-SCOPE Core</h1><p>Interface locale terrain ESP32 / PZEM-004T.</p><div id="status" class="card">Chargement...</div><div id="values" class="grid"></div><div class="card"><small>Accès local</small><p><code>/api/status</code><br><code>/api/telemetry</code><br><code>/api/session</code><br><code>/api/connectivity</code><br><a href="/update" style="color:#7fc4ff">Mise à jour OTA</a></p></div></main>
 <script>async function r(){try{let s=await (await fetch('/api/status')).json(),t=await (await fetch('/api/telemetry')).json();document.getElementById('status').innerHTML='<b>'+s.device_id+'</b> · '+s.state+' · MQTT '+(s.mqtt_connected?'OK':'OFF')+' · PZEM '+(s.pzem_online?'OK':'OFF');let a=[['Tension',t.voltage_v,'V'],['Courant',t.current_a,'A'],['Puissance',t.active_power_w,'W'],['PF',t.power_factor,''],['Fréquence',t.frequency_hz,'Hz'],['Énergie',t.energy_total_wh,'Wh']];document.getElementById('values').innerHTML=a.map(x=>'<div class="card"><small>'+x[0]+'</small><div class="v">'+(x[1]??'—')+' '+x[2]+'</div></div>').join('')}catch(e){}}setInterval(r,1000);r()</script></body></html>)HTML";
     web.send(200, "text/html; charset=utf-8", page);
   });
@@ -398,24 +415,20 @@ void setup() {
 
   pzem.begin(PZEM_BAUD, PZEM_RX_PIN, PZEM_TX_PIN);
 
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
-  WiFi.mode(WIFI_AP_STA);
-  const String ap_ssid = String(AP_SSID_PREFIX) + DEVICE_ID;
-  WiFi.softAP(ap_ssid.c_str(), VESCOPE_AP_PASSWORD);
-  logLine(String("Local AP: ") + ap_ssid + " @ " + WiFi.softAPIP().toString());
-  WiFi.begin(VESCOPE_WIFI_SSID, VESCOPE_WIFI_PASSWORD);
+  ble.begin(DEVICE_ID, FIRMWARE_VERSION);
+  connectivity.begin(web, DEVICE_ID);
 
   mqtt.setServer(VESCOPE_MQTT_HOST, VESCOPE_MQTT_PORT);
   mqtt.setKeepAlive(30);
   mqtt.setBufferSize(1536);
 
   configureWebServer();
+  publishStatus();
 }
 
 void loop() {
   web.handleClient();
-  connectWifiIfNeeded();
+  connectivity.handle();
   connectMqttIfNeeded();
   if (mqtt.connected()) mqtt.loop();
 
