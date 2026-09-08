@@ -51,6 +51,7 @@ void BleService::begin(const char* device_id, const char* firmware_version) {
   advertising->enableScanResponse(true);
   advertising->start();
   started_ = true;
+  Serial.printf("[VE-SCOPE] BLE actif: %s\n", name.c_str());
 }
 
 void BleService::updateTelemetry(const String& payload) {
