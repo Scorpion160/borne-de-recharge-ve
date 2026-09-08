@@ -5,7 +5,7 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.1.2-hw";
+constexpr char FIRMWARE_VERSION[] = "0.2.0-field";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
@@ -47,6 +47,9 @@ constexpr uint32_t SESSION_PERIOD_MS = 1000;
 constexpr uint32_t STATUS_PERIOD_MS = 15000;
 constexpr uint32_t DIAGNOSTICS_PERIOD_MS = 10000;
 constexpr uint32_t WIFI_RETRY_MS = 5000;
+constexpr uint32_t WIFI_FALLBACK_AP_AFTER_MS = 20000;
+constexpr uint32_t WIFI_AP_STOP_AFTER_RECOVERY_MS = 30000;
+constexpr uint32_t BLE_TELEMETRY_PERIOD_MS = 1000;
 constexpr uint32_t MQTT_RETRY_MIN_MS = 1000;
 constexpr uint32_t MQTT_RETRY_MAX_MS = 15000;
 
@@ -67,5 +70,12 @@ constexpr float VALID_FREQUENCY_MAX_HZ = 70.0F;
 
 // Point d'accès local de maintenance.
 constexpr char AP_SSID_PREFIX[] = "VE-SCOPE-";
+constexpr char MDNS_HOST_PREFIX[] = "vescope-";
+
+// BLE GATT UUIDs VE-SCOPE Core V1.
+constexpr char BLE_SERVICE_UUID[] = "8f110000-6c4d-4f62-9ca8-7ef24ec70001";
+constexpr char BLE_TELEMETRY_UUID[] = "8f110001-6c4d-4f62-9ca8-7ef24ec70001";
+constexpr char BLE_STATUS_UUID[] = "8f110002-6c4d-4f62-9ca8-7ef24ec70001";
+constexpr char BLE_INFO_UUID[] = "8f110003-6c4d-4f62-9ca8-7ef24ec70001";
 
 }  // namespace vescope
