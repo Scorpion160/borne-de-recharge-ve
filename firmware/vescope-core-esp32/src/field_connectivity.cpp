@@ -35,10 +35,10 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
   Serial.printf("[VE-SCOPE] Wi-Fi primaire: %s\n", VESCOPE_WIFI_SSID);
 
   configureWebOta();
-  configureArduinoOta();
 }
 
 void FieldConnectivity::configureArduinoOta() {
+  if (ota_started_) return;
   ArduinoOTA.setHostname(mdns_host_.c_str());
   ArduinoOTA.setPassword(VESCOPE_OTA_PASSWORD);
   ArduinoOTA.onStart([]() { Serial.println("[VE-SCOPE] OTA reseau: debut"); });
@@ -51,6 +51,10 @@ void FieldConnectivity::configureArduinoOta() {
     Serial.printf("[VE-SCOPE] OTA erreur %u\n", static_cast<unsigned int>(error));
   });
   ArduinoOTA.begin();
+  MDNS.addService("http", "tcp", 80);
+  ota_started_ = true;
+  mdns_started_ = true;
+  Serial.printf("[VE-SCOPE] OTA/mDNS: %s.local\n", mdns_host_.c_str());
 }
 
 void FieldConnectivity::configureWebOta() {
@@ -139,13 +143,8 @@ void FieldConnectivity::stopFallbackAp() {
 }
 
 void FieldConnectivity::startMdnsIfNeeded() {
-  if (mdns_started_) return;
-  if (MDNS.begin(mdns_host_.c_str())) {
-    MDNS.addService("http", "tcp", 80);
-    MDNS.addService("arduino", "tcp", 3232);
-    mdns_started_ = true;
-    Serial.printf("[VE-SCOPE] mDNS: http://%s.local\n", mdns_host_.c_str());
-  }
+  if (mdns_started_ && ota_started_) return;
+  configureArduinoOta();
 }
 
 void FieldConnectivity::handle() {
@@ -170,7 +169,7 @@ void FieldConnectivity::handle() {
   }
 
   if (ap_active_) dns_server.processNextRequest();
-  ArduinoOTA.handle();
+  if (ota_started_) ArduinoOTA.handle();
 }
 
 bool FieldConnectivity::apActive() const { return ap_active_; }
