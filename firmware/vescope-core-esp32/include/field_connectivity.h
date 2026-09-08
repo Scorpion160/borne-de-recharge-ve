@@ -30,6 +30,7 @@ class FieldConnectivity {
   uint32_t recovery_started_ms_ = 0;
   bool ap_active_ = false;
   bool mdns_started_ = false;
+  bool ota_started_ = false;
 };
 
 }  // namespace vescope
