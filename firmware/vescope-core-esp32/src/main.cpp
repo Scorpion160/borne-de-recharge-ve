@@ -7,6 +7,7 @@
 #include <sys/time.h>
 
 #include "ble_service.h"
+#include "board_ui.h"
 #include "config.h"
 #include "field_connectivity.h"
 #include "pzem_modbus.h"
@@ -26,6 +27,7 @@ PubSubClient mqtt(wifi_client);
 WebServer web(80);
 BleService ble;
 FieldConnectivity connectivity;
+BoardUi board_ui;
 
 PzemMeasurement last_measurement;
 bool have_measurement = false;
@@ -409,6 +411,8 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   logLine(String("Boot firmware ") + FIRMWARE_VERSION);
+  board_ui.begin();
+  board_ui.showBoot(FIRMWARE_VERSION);
 
   seedClockFromBuild();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
@@ -441,9 +445,11 @@ void loop() {
       have_measurement = true;
       last_measurement_ms = now;
       processSession(measurement);
+      board_ui.showTelemetry(measurement, connectivity.staConnected(), mqtt.connected(), ble.connected(), session.active);
       publishTelemetry(measurement);
       if (session.active) publishSessionLive(measurement);
     } else {
+      board_ui.showPzemOffline(connectivity.staConnected(), mqtt.connected(), ble.connected());
       logLine(String("PZEM read failed: ") + pzem.lastError());
     }
   }
