@@ -28,9 +28,11 @@ cd /opt/vescope/infrastructure
 mkdir -p mosquitto/secrets mosquitto/certs
 cp mosquitto/acl.example mosquitto/secrets/acl
 MQTTPASS=$(openssl rand -hex 24)
+rm -f mosquitto/secrets/passwords
 docker run --rm -v "$PWD/mosquitto/secrets:/work" eclipse-mosquitto:2 \
   mosquitto_passwd -b -c /work/passwords borne-01 "$MQTTPASS"
-chmod 640 mosquitto/secrets/passwords
+chown 1883:1883 mosquitto/secrets/passwords mosquitto/secrets/acl
+chmod 640 mosquitto/secrets/passwords mosquitto/secrets/acl
 ```
 
 Conserver la valeur de `MQTTPASS` dans un gestionnaire de secrets. Elle doit ensuite être placée dans `firmware/vescope-core-esp32/include/secrets.h` sur le poste de développement.
@@ -45,11 +47,17 @@ chmod +x mosquitto/sync-certs.sh
 ## Stack
 
 ```bash
-docker compose --env-file .env.vps -f docker-compose.vps.yml up -d --build mqtt hub supervisor
-docker compose --env-file .env.vps -f docker-compose.vps.yml ps
+docker compose --env-file .env.vps \
+  -f docker-compose.vps.yml \
+  -f docker-compose.mqtt-tls.yml \
+  up -d --build mqtt hub supervisor
+docker compose --env-file .env.vps \
+  -f docker-compose.vps.yml \
+  -f docker-compose.mqtt-tls.yml \
+  ps
 ```
 
-Le port public doit être `8883/tcp`. Le listener `1883` reste uniquement dans le réseau Docker et n'est pas publié sur l'hôte.
+Le port public doit être `8883/tcp`. Le listener `1883` reste uniquement dans le réseau Docker et n’est pas publié sur l’hôte. Sans l’override `docker-compose.mqtt-tls.yml`, le broker reste volontairement en mode interne afin qu’un certificat manquant ne casse pas le Hub et le simulateur.
 
 ## Test TLS depuis le VPS
 
