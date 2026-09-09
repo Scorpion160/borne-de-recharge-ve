@@ -3,9 +3,7 @@
 #include <PubSubClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
-#if VESCOPE_MQTT_TLS
 #include <WiFiClientSecure.h>
-#endif
 #include <time.h>
 #include <sys/time.h>
 
