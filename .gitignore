@@ -35,3 +35,4 @@ data/*.csv
 data/*.jsonl
 infrastructure/mosquitto/secrets/
 infrastructure/mosquitto/certs/
+firmware/vescope-core-esp32/include/mqtt_ca.h
