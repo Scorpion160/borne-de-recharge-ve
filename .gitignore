@@ -33,3 +33,5 @@ Thumbs.db
 *.log
 data/*.csv
 data/*.jsonl
+infrastructure/mosquitto/secrets/
+infrastructure/mosquitto/certs/
