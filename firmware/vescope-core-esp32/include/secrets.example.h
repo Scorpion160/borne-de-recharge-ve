@@ -8,10 +8,11 @@
 
 // Adresse IP ou nom DNS du broker Mosquitto joignable par l'ESP32.
 // Exemple en laboratoire : IP du PC qui exécute docker compose.
-#define VESCOPE_MQTT_HOST "192.168.1.100"
-#define VESCOPE_MQTT_PORT 1883
-#define VESCOPE_MQTT_USER ""
-#define VESCOPE_MQTT_PASSWORD ""
+#define VESCOPE_MQTT_HOST "mqtt.vescope.kerunjombor.net"
+#define VESCOPE_MQTT_PORT 8883
+#define VESCOPE_MQTT_TLS 1
+#define VESCOPE_MQTT_USER "borne-01"
+#define VESCOPE_MQTT_PASSWORD "CHANGE_ME_MQTT"
 
 // Mot de passe du point d'accès local VE-SCOPE-<device_id> (8 caractères min.).
 #define VESCOPE_AP_PASSWORD "vescope01"
