@@ -3,6 +3,9 @@
 #include <PubSubClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#if VESCOPE_MQTT_TLS
+#include <WiFiClientSecure.h>
+#endif
 #include <time.h>
 #include <sys/time.h>
 
@@ -18,11 +21,21 @@
 #include "secrets.example.h"
 #endif
 
+#if __has_include("mqtt_ca.h")
+#include "mqtt_ca.h"
+#else
+#include "mqtt_ca.example.h"
+#endif
+
 using namespace vescope;
 
 HardwareSerial pzem_uart(1);
 PzemModbus pzem(pzem_uart, PZEM_ADDRESS, PZEM_TIMEOUT_MS);
+#if VESCOPE_MQTT_TLS
+WiFiClientSecure wifi_client;
+#else
 WiFiClient wifi_client;
+#endif
 PubSubClient mqtt(wifi_client);
 WebServer web(80);
 BleService ble;
@@ -317,6 +330,9 @@ void publishTelemetry(const PzemMeasurement& m) {
 
 void connectMqttIfNeeded() {
   if (mqtt.connected() || WiFi.status() != WL_CONNECTED) return;
+#if VESCOPE_MQTT_TLS
+  if (strlen(VESCOPE_MQTT_ROOT_CA) == 0) return;
+#endif
   if (millis() - last_mqtt_attempt_ms < mqtt_retry_ms) return;
   last_mqtt_attempt_ms = millis();
 
@@ -422,6 +438,14 @@ void setup() {
   ble.begin(DEVICE_ID, FIRMWARE_VERSION);
   connectivity.begin(web, DEVICE_ID);
 
+#if VESCOPE_MQTT_TLS
+  if (strlen(VESCOPE_MQTT_ROOT_CA) > 0) {
+    wifi_client.setCACert(VESCOPE_MQTT_ROOT_CA);
+    logLine("MQTT TLS: validation CA active");
+  } else {
+    logLine("MQTT TLS: CA absente - connexion cloud bloquee");
+  }
+#endif
   mqtt.setServer(VESCOPE_MQTT_HOST, VESCOPE_MQTT_PORT);
   mqtt.setKeepAlive(30);
   mqtt.setBufferSize(1536);
