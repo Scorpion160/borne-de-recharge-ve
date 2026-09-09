@@ -4,8 +4,12 @@ services:
     container_name: vescope_mqtt
     restart: unless-stopped
     volumes:
-      - ./mosquitto/mosquitto.vps-internal.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/mosquitto.vps.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/secrets:/mosquitto/secrets:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
       - vescope_mqtt_data:/mosquitto/data
+    ports:
+      - "8883:8883"
 
   postgres:
     image: postgres:17-alpine
