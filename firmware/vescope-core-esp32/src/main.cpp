@@ -11,6 +11,7 @@
 #include "board_ui.h"
 #include "config.h"
 #include "field_connectivity.h"
+#include "https_fallback.h"
 #include "pzem_modbus.h"
 
 #if __has_include("secrets.h")
@@ -38,6 +39,7 @@ PubSubClient mqtt(wifi_client);
 WebServer web(80);
 BleService ble;
 FieldConnectivity connectivity;
+HttpsFallback https_fallback;
 BoardUi board_ui;
 
 PzemMeasurement last_measurement;
@@ -45,6 +47,7 @@ bool have_measurement = false;
 uint32_t sequence_number = 0;
 uint32_t last_measurement_ms = 0;
 uint32_t last_telemetry_ms = 0;
+uint32_t last_session_ms = 0;
 uint32_t last_status_ms = 0;
 uint32_t last_diagnostics_ms = 0;
 uint32_t last_mqtt_attempt_ms = 0;
@@ -161,10 +164,30 @@ String jsonString(JsonDocument& doc) {
   return output;
 }
 
-bool publishJson(const String& mqtt_topic, JsonDocument& doc, bool retained = false) {
-  if (!mqtt.connected()) return false;
-  const String payload = jsonString(doc);
-  return mqtt.publish(mqtt_topic.c_str(), payload.c_str(), retained);
+const char* cloudTransport() {
+  if (mqtt.connected()) return "MQTT_TLS";
+  if (https_fallback.recentlySuccessful()) return "HTTPS";
+  return "OFFLINE";
+}
+
+bool publishCloudPayload(const char* channel, const String& payload, bool retained = false) {
+  if (mqtt.connected()) {
+    if (mqtt.publish(topic(channel).c_str(), payload.c_str(), retained)) return true;
+  }
+
+  const bool ok = https_fallback.publish(DEVICE_ID, channel, payload);
+  if (ok && !mqtt.connected()) {
+    static uint32_t last_log_ms = 0;
+    if (millis() - last_log_ms > 15000 || last_log_ms == 0) {
+      logLine("Cloud transport: HTTPS 443 fallback");
+      last_log_ms = millis();
+    }
+  }
+  return ok;
+}
+
+bool publishCloudJson(const char* channel, JsonDocument& doc, bool retained = false) {
+  return publishCloudPayload(channel, jsonString(doc), retained);
 }
 
 String stationState() {
@@ -183,9 +206,10 @@ void publishStatus() {
   doc["transport_wifi"] = connectivity.staConnected();
   doc["transport_ap"] = connectivity.apActive();
   doc["transport_ble"] = ble.connected();
+  doc["cloud_transport"] = cloudTransport();
   const String payload = jsonString(doc);
   ble.updateStatus(payload);
-  if (mqtt.connected()) mqtt.publish(topic("status").c_str(), payload.c_str(), true);
+  publishCloudPayload("status", payload, true);
 }
 
 void publishDiagnostics() {
@@ -203,11 +227,16 @@ void publishDiagnostics() {
   doc["fallback_ap_active"] = connectivity.apActive();
   doc["mdns"] = connectivity.mdnsHost() + ".local";
   doc["mqtt_connected"] = mqtt.connected();
+  doc["https_fallback_ok"] = https_fallback.recentlySuccessful();
+  doc["https_last_http_code"] = https_fallback.lastHttpCode();
+  doc["https_publish_ok"] = https_fallback.successCount();
+  doc["https_publish_errors"] = https_fallback.errorCount();
+  doc["cloud_transport"] = cloudTransport();
   doc["ble_connected"] = ble.connected();
   doc["pzem_reads_ok"] = pzem.successCount();
   doc["pzem_errors"] = pzem.errorCount();
   doc["pzem_last_error"] = pzem.lastError();
-  publishJson(topic("diagnostics"), doc, false);
+  publishCloudJson("diagnostics", doc, false);
 }
 
 void startSession(const PzemMeasurement& m) {
@@ -283,14 +312,14 @@ void publishSessionLive(const PzemMeasurement& m) {
   if (!session.active) return;
   JsonDocument doc;
   fillSession(doc, m, false);
-  publishJson(topic("session/live"), doc, false);
+  publishCloudJson("session/live", doc, false);
 }
 
 void finishSession(const PzemMeasurement& m) {
   if (!session.active) return;
   JsonDocument doc;
   fillSession(doc, m, true);
-  publishJson(topic("session/summary"), doc, false);
+  publishCloudJson("session/summary", doc, false);
   logLine(String("Session completed: ") + session.id);
   session.active = false;
   session.stop_confirm = 0;
@@ -321,9 +350,7 @@ void publishTelemetry(const PzemMeasurement& m) {
   Serial.println(payload);
 
   ble.updateTelemetry(payload);
-  if (mqtt.connected()) {
-    mqtt.publish(topic("telemetry/ac").c_str(), payload.c_str(), false);
-  }
+  publishCloudPayload("telemetry/ac", payload, false);
 }
 
 void connectMqttIfNeeded() {
@@ -353,12 +380,12 @@ void connectMqttIfNeeded() {
 
   if (connected) {
     mqtt_retry_ms = MQTT_RETRY_MIN_MS;
-    logLine("MQTT connected");
+    logLine("Cloud transport: MQTT TLS");
     publishStatus();
     publishDiagnostics();
   } else {
     mqtt_retry_ms = min<uint32_t>(MQTT_RETRY_MAX_MS, mqtt_retry_ms * 2);
-    logLine(String("MQTT failed rc=") + mqtt.state());
+    logLine(String("MQTT failed rc=") + mqtt.state() + " - HTTPS fallback available");
   }
 }
 
@@ -374,6 +401,9 @@ String statusJson() {
   doc["ap_ip"] = connectivity.apIp();
   doc["mdns"] = connectivity.mdnsHost() + ".local";
   doc["mqtt_connected"] = mqtt.connected();
+  doc["https_fallback_ok"] = https_fallback.recentlySuccessful();
+  doc["https_last_http_code"] = https_fallback.lastHttpCode();
+  doc["cloud_transport"] = cloudTransport();
   doc["ble_connected"] = ble.connected();
   doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < 3000);
   doc["uptime_s"] = millis() / 1000;
@@ -415,7 +445,7 @@ void configureWebServer() {
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VE-SCOPE Core</title><style>body{font-family:system-ui;background:#071321;color:#e9f1fa;margin:0;padding:24px}main{max-width:760px;margin:auto}.card{background:#0d1d2f;border:1px solid #243b55;border-radius:16px;padding:20px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.v{font-size:1.7rem;font-weight:700}small{color:#8fa7bf}code{color:#7fc4ff}</style></head>
 <body><main><h1>VE-SCOPE Core</h1><p>Interface locale terrain ESP32 / PZEM-004T.</p><div id="status" class="card">Chargement...</div><div id="values" class="grid"></div><div class="card"><small>Accès local</small><p><code>/api/status</code><br><code>/api/telemetry</code><br><code>/api/session</code><br><code>/api/connectivity</code><br><a href="/update" style="color:#7fc4ff">Mise à jour OTA</a></p></div></main>
-<script>async function r(){try{let s=await (await fetch('/api/status')).json(),t=await (await fetch('/api/telemetry')).json();document.getElementById('status').innerHTML='<b>'+s.device_id+'</b> · '+s.state+' · MQTT '+(s.mqtt_connected?'OK':'OFF')+' · PZEM '+(s.pzem_online?'OK':'OFF');let a=[['Tension',t.voltage_v,'V'],['Courant',t.current_a,'A'],['Puissance',t.active_power_w,'W'],['PF',t.power_factor,''],['Fréquence',t.frequency_hz,'Hz'],['Énergie',t.energy_total_wh,'Wh']];document.getElementById('values').innerHTML=a.map(x=>'<div class="card"><small>'+x[0]+'</small><div class="v">'+(x[1]??'—')+' '+x[2]+'</div></div>').join('')}catch(e){}}setInterval(r,1000);r()</script></body></html>)HTML";
+<script>async function r(){try{let s=await (await fetch('/api/status')).json(),t=await (await fetch('/api/telemetry')).json();document.getElementById('status').innerHTML='<b>'+s.device_id+'</b> · '+s.state+' · CLOUD '+s.cloud_transport+' · PZEM '+(s.pzem_online?'OK':'OFF');let a=[['Tension',t.voltage_v,'V'],['Courant',t.current_a,'A'],['Puissance',t.active_power_w,'W'],['PF',t.power_factor,''],['Fréquence',t.frequency_hz,'Hz'],['Énergie',t.energy_total_wh,'Wh']];document.getElementById('values').innerHTML=a.map(x=>'<div class="card"><small>'+x[0]+'</small><div class="v">'+(x[1]??'—')+' '+x[2]+'</div></div>').join('')}catch(e){}}setInterval(r,1000);r()</script></body></html>)HTML";
     web.send(200, "text/html; charset=utf-8", page);
   });
   web.begin();
@@ -435,17 +465,20 @@ void setup() {
 
   ble.begin(DEVICE_ID, FIRMWARE_VERSION);
   connectivity.begin(web, DEVICE_ID);
+  https_fallback.begin();
 
 #if VESCOPE_MQTT_TLS
   if (strlen(VESCOPE_MQTT_ROOT_CA) > 0) {
     wifi_client.setCACert(VESCOPE_MQTT_ROOT_CA);
-    logLine("MQTT TLS: validation CA active");
+    wifi_client.setHandshakeTimeout(4);
+    logLine("MQTT/HTTPS TLS: validation CA active");
   } else {
-    logLine("MQTT TLS: CA absente - connexion cloud bloquee");
+    logLine("CA TLS absente - transports cloud bloques");
   }
 #endif
   mqtt.setServer(VESCOPE_MQTT_HOST, VESCOPE_MQTT_PORT);
   mqtt.setKeepAlive(30);
+  mqtt.setSocketTimeout(4);
   mqtt.setBufferSize(1536);
 
   configureWebServer();
@@ -467,20 +500,25 @@ void loop() {
       have_measurement = true;
       last_measurement_ms = now;
       processSession(measurement);
-      board_ui.showTelemetry(measurement, connectivity.staConnected(), mqtt.connected(), ble.connected(), session.active);
+      const bool cloud_ok = mqtt.connected() || https_fallback.recentlySuccessful();
+      board_ui.showTelemetry(measurement, connectivity.staConnected(), cloud_ok, ble.connected(), session.active);
       publishTelemetry(measurement);
-      if (session.active) publishSessionLive(measurement);
+      if (session.active && now - last_session_ms >= SESSION_PERIOD_MS) {
+        last_session_ms = now;
+        publishSessionLive(measurement);
+      }
     } else {
-      board_ui.showPzemOffline(connectivity.staConnected(), mqtt.connected(), ble.connected());
+      const bool cloud_ok = mqtt.connected() || https_fallback.recentlySuccessful();
+      board_ui.showPzemOffline(connectivity.staConnected(), cloud_ok, ble.connected());
       logLine(String("PZEM read failed: ") + pzem.lastError());
     }
   }
 
-  if (mqtt.connected() && now - last_status_ms >= STATUS_PERIOD_MS) {
+  if (now - last_status_ms >= STATUS_PERIOD_MS) {
     last_status_ms = now;
     publishStatus();
   }
-  if (mqtt.connected() && now - last_diagnostics_ms >= DIAGNOSTICS_PERIOD_MS) {
+  if (now - last_diagnostics_ms >= DIAGNOSTICS_PERIOD_MS) {
     last_diagnostics_ms = now;
     publishDiagnostics();
   }
