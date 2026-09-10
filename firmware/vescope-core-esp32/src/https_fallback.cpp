@@ -36,7 +36,7 @@ constexpr uint32_t HTTPS_RETRY_MAX_MS = 15000;
 }
 
 void HttpsFallback::begin() {
-  retry_ms_ = HTTPS_RETRY_MIN_MS;
+  retry_ms_ = 0;
   last_attempt_ms_ = 0;
   last_success_ms_ = 0;
   last_http_code_ = 0;
@@ -54,7 +54,7 @@ bool HttpsFallback::publish(const char* device_id, const char* channel, const St
   if (strlen(VESCOPE_MQTT_ROOT_CA) == 0) return false;
 
   const uint32_t now = millis();
-  if (last_attempt_ms_ != 0 && now - last_attempt_ms_ < retry_ms_) return false;
+  if (retry_ms_ > 0 && last_attempt_ms_ != 0 && now - last_attempt_ms_ < retry_ms_) return false;
   last_attempt_ms_ = now;
 
   WiFiClientSecure secure;
@@ -72,7 +72,7 @@ bool HttpsFallback::publish(const char* device_id, const char* channel, const St
   if (!http.begin(secure, url)) {
     ++error_count_;
     last_http_code_ = -1;
-    retry_ms_ = min<uint32_t>(HTTPS_RETRY_MAX_MS, retry_ms_ * 2);
+    retry_ms_ = retry_ms_ == 0 ? HTTPS_RETRY_MIN_MS : min<uint32_t>(HTTPS_RETRY_MAX_MS, retry_ms_ * 2);
     return false;
   }
 
@@ -86,10 +86,10 @@ bool HttpsFallback::publish(const char* device_id, const char* channel, const St
   if (ok) {
     last_success_ms_ = millis();
     ++success_count_;
-    retry_ms_ = HTTPS_RETRY_MIN_MS;
+    retry_ms_ = 0;
   } else {
     ++error_count_;
-    retry_ms_ = min<uint32_t>(HTTPS_RETRY_MAX_MS, retry_ms_ * 2);
+    retry_ms_ = retry_ms_ == 0 ? HTTPS_RETRY_MIN_MS : min<uint32_t>(HTTPS_RETRY_MAX_MS, retry_ms_ * 2);
   }
 
   return ok;
