@@ -42,9 +42,9 @@ void BoardUi::showBoot(const char* firmware) {
   display.display();
 }
 
-void BoardUi::showTelemetry(const PzemMeasurement& m, bool wifi, bool mqtt, bool ble, bool charging) {
+void BoardUi::showTelemetry(const PzemMeasurement& m, bool wifi, bool cloud, bool ble, bool charging) {
   if (charging) setRgb(0, 1, 0);
-  else if (mqtt) setRgb(0, 1, 1);
+  else if (cloud) setRgb(0, 1, 1);
   else if (wifi) setRgb(0, 0, 1);
   else if (ble) setRgb(1, 0, 1);
   else setRgb(1, 1, 0);
@@ -58,11 +58,11 @@ void BoardUi::showTelemetry(const PzemMeasurement& m, bool wifi, bool mqtt, bool
   display.printf("P %6.2f kW\n", m.active_power_w / 1000.0F);
   display.printf("PF %.3f  F %.2fHz\n", m.power_factor, m.frequency_hz);
   display.printf("E %.3f kWh\n", m.energy_total_wh / 1000.0F);
-  display.printf("W:%s M:%s B:%s", wifi ? "OK" : "--", mqtt ? "OK" : "--", ble ? "OK" : "--");
+  display.printf("W:%s C:%s B:%s", wifi ? "OK" : "--", cloud ? "OK" : "--", ble ? "OK" : "--");
   display.display();
 }
 
-void BoardUi::showPzemOffline(bool wifi, bool mqtt, bool ble) {
+void BoardUi::showPzemOffline(bool wifi, bool cloud, bool ble) {
   setRgb(1, 0, 0);
   if (!oled_ready_) return;
   display.clearDisplay();
@@ -71,9 +71,9 @@ void BoardUi::showPzemOffline(bool wifi, bool mqtt, bool ble) {
   display.println("VE-SCOPE");
   display.println("PZEM OFFLINE");
   display.println();
-  display.printf("WiFi: %s\n", wifi ? "OK" : "NON");
-  display.printf("MQTT: %s\n", mqtt ? "OK" : "NON");
-  display.printf("BLE : %s\n", ble ? "OK" : "NON");
+  display.printf("WiFi : %s\n", wifi ? "OK" : "NON");
+  display.printf("Cloud: %s\n", cloud ? "OK" : "NON");
+  display.printf("BLE  : %s\n", ble ? "OK" : "NON");
   display.display();
 }
 
