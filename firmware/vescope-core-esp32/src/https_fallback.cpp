@@ -78,7 +78,7 @@ bool HttpsFallback::publish(const char* device_id, const char* channel, const St
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + VESCOPE_HTTPS_INGEST_TOKEN);
-  const int code = http.POST(reinterpret_cast<const uint8_t*>(payload.c_str()), payload.length());
+  const int code = http.POST(payload);
   last_http_code_ = code;
   const bool ok = code >= 200 && code < 300;
   http.end();
