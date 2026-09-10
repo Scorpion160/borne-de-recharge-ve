@@ -38,7 +38,7 @@ void FieldConnectivity::loadWifiCredentials() {
 }
 
 void FieldConnectivity::connectPrimaryWifi() {
-  if (wifi_ssid_.isEmpty()) return;
+  if (wifi_ssid_.length() == 0) return;
   WiFi.begin(wifi_ssid_.c_str(), wifi_password_.c_str());
 }
 
