@@ -2,9 +2,17 @@ $ErrorActionPreference = "Stop"
 
 $Url = "https://letsencrypt.org/certs/isrgrootx1.pem"
 $Target = Join-Path $PSScriptRoot "..\firmware\vescope-core-esp32\include\mqtt_ca.h"
+$Temp = Join-Path $env:TEMP "vescope-isrgrootx1.pem"
 
 Write-Host "[VE-SCOPE] Téléchargement ISRG Root X1..." -ForegroundColor Cyan
-$pem = (Invoke-WebRequest -UseBasicParsing $Url).Content.Trim()
+
+try {
+  Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Temp
+  $pem = (Get-Content -Path $Temp -Raw -Encoding ASCII).Trim()
+}
+finally {
+  Remove-Item -Path $Temp -Force -ErrorAction SilentlyContinue
+}
 
 if (-not $pem.Contains("BEGIN CERTIFICATE") -or -not $pem.Contains("END CERTIFICATE")) {
   throw "Le contenu téléchargé n'est pas un certificat PEM valide."
@@ -19,5 +27,5 @@ $pem
 )VESCOPE_CA";
 "@
 
-Set-Content -Path $Target -Value $header -Encoding ascii
+Set-Content -Path $Target -Value $header -Encoding ASCII
 Write-Host "[VE-SCOPE] CA MQTT créée: $Target" -ForegroundColor Green
