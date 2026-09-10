@@ -10,8 +10,8 @@ class BoardUi {
  public:
   void begin();
   void showBoot(const char* firmware);
-  void showTelemetry(const PzemMeasurement& m, bool wifi, bool mqtt, bool ble, bool charging);
-  void showPzemOffline(bool wifi, bool mqtt, bool ble);
+  void showTelemetry(const PzemMeasurement& m, bool wifi, bool cloud, bool ble, bool charging);
+  void showPzemOffline(bool wifi, bool cloud, bool ble);
   bool oledReady() const;
 
  private:
