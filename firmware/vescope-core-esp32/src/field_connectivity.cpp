@@ -4,6 +4,7 @@
 #include <ArduinoOTA.h>
 #include <DNSServer.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
 
@@ -19,6 +20,26 @@ namespace vescope {
 
 namespace {
 DNSServer dns_server;
+Preferences wifi_prefs;
+}
+
+void FieldConnectivity::loadWifiCredentials() {
+  wifi_prefs.begin("vescope-wifi", false);
+  const String stored_ssid = wifi_prefs.getString("ssid", "");
+  if (stored_ssid.length() > 0) {
+    wifi_ssid_ = stored_ssid;
+    wifi_password_ = wifi_prefs.getString("pass", "");
+    stored_wifi_ = true;
+  } else {
+    wifi_ssid_ = VESCOPE_WIFI_SSID;
+    wifi_password_ = VESCOPE_WIFI_PASSWORD;
+    stored_wifi_ = false;
+  }
+}
+
+void FieldConnectivity::connectPrimaryWifi() {
+  if (wifi_ssid_.isEmpty()) return;
+  WiFi.begin(wifi_ssid_.c_str(), wifi_password_.c_str());
 }
 
 void FieldConnectivity::begin(WebServer& server, const char* device_id) {
@@ -28,13 +49,16 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
   mdns_host_.toLowerCase();
   offline_since_ms_ = millis();
 
+  loadWifiCredentials();
+
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(VESCOPE_WIFI_SSID, VESCOPE_WIFI_PASSWORD);
-  Serial.printf("[VE-SCOPE] Wi-Fi primaire: %s\n", VESCOPE_WIFI_SSID);
+  connectPrimaryWifi();
+  Serial.printf("[VE-SCOPE] Wi-Fi primaire: %s (%s)\n", wifi_ssid_.c_str(), stored_wifi_ ? "NVS" : "firmware");
 
   configureWebOta();
+  configureWifiPortal();
 }
 
 void FieldConnectivity::configureArduinoOta() {
@@ -66,6 +90,8 @@ void FieldConnectivity::configureWebOta() {
     doc["device_id"] = device_id_;
     doc["wifi_connected"] = staConnected();
     doc["wifi_ssid"] = staConnected() ? WiFi.SSID() : "";
+    doc["configured_ssid"] = wifi_ssid_;
+    doc["wifi_config_source"] = stored_wifi_ ? "NVS" : "firmware";
     doc["wifi_rssi_dbm"] = staConnected() ? WiFi.RSSI() : -127;
     doc["wifi_ip"] = staIp();
     doc["fallback_ap_active"] = ap_active_;
@@ -73,6 +99,7 @@ void FieldConnectivity::configureWebOta() {
     doc["fallback_ap_ip"] = apIp();
     doc["mdns"] = mdns_host_ + ".local";
     doc["ota_web_path"] = "/update";
+    doc["wifi_config_path"] = "/wifi";
     String payload;
     serializeJson(doc, payload);
     server_->send(200, "application/json; charset=utf-8", payload);
@@ -120,6 +147,54 @@ void FieldConnectivity::configureWebOta() {
       });
 }
 
+void FieldConnectivity::configureWifiPortal() {
+  if (server_ == nullptr) return;
+
+  server_->on("/wifi", HTTP_GET, [this]() {
+    if (!server_->authenticate(VESCOPE_OTA_WEB_USER, VESCOPE_OTA_WEB_PASSWORD)) {
+      return server_->requestAuthentication();
+    }
+    String page = R"HTML(
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VE-SCOPE Wi-Fi</title><style>body{font-family:system-ui;background:#071321;color:#eaf2fa;padding:24px}main{max-width:560px;margin:auto;background:#0d1d2f;border:1px solid #29435d;border-radius:16px;padding:24px}input,button{width:100%;box-sizing:border-box;margin-top:12px;padding:12px;border-radius:10px}button{background:#1765a4;color:white;border:0;font-weight:700}small{color:#9fb2c6}</style></head><body><main><h1>VE-SCOPE Wi-Fi</h1><p>Reseau configure : <b>)HTML";
+    page += wifi_ssid_;
+    page += R"HTML(</b></p><form method="POST" action="/api/wifi/config"><label>SSID</label><input name="ssid" maxlength="32" required><label>Mot de passe</label><input name="password" type="password" maxlength="63"><button type="submit">Enregistrer et redemarrer</button></form><form method="POST" action="/api/wifi/reset"><button type="submit">Revenir au Wi-Fi usine</button></form><p><small>La configuration est stockee dans la memoire NVS de l'ESP32 et peut etre changee sans reflasher.</small></p></main></body></html>)HTML";
+    server_->send(200, "text/html; charset=utf-8", page);
+  });
+
+  server_->on("/api/wifi/config", HTTP_POST, [this]() {
+    if (!server_->authenticate(VESCOPE_OTA_WEB_USER, VESCOPE_OTA_WEB_PASSWORD)) {
+      return server_->requestAuthentication();
+    }
+    if (!server_->hasArg("ssid")) {
+      server_->send(400, "text/plain; charset=utf-8", "SSID requis");
+      return;
+    }
+    const String ssid = server_->arg("ssid");
+    const String password = server_->arg("password");
+    if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 63) {
+      server_->send(422, "text/plain; charset=utf-8", "Parametres Wi-Fi invalides");
+      return;
+    }
+    wifi_prefs.putString("ssid", ssid);
+    wifi_prefs.putString("pass", password);
+    server_->send(200, "text/plain; charset=utf-8", "Wi-Fi enregistre. Redemarrage VE-SCOPE...");
+    delay(500);
+    ESP.restart();
+  });
+
+  server_->on("/api/wifi/reset", HTTP_POST, [this]() {
+    if (!server_->authenticate(VESCOPE_OTA_WEB_USER, VESCOPE_OTA_WEB_PASSWORD)) {
+      return server_->requestAuthentication();
+    }
+    wifi_prefs.remove("ssid");
+    wifi_prefs.remove("pass");
+    server_->send(200, "text/plain; charset=utf-8", "Configuration Wi-Fi locale effacee. Redemarrage...");
+    delay(500);
+    ESP.restart();
+  });
+}
+
 void FieldConnectivity::startFallbackAp() {
   if (ap_active_) return;
   WiFi.mode(WIFI_AP_STA);
@@ -163,7 +238,7 @@ void FieldConnectivity::handle() {
     if (offline_since_ms_ == 0) offline_since_ms_ = now;
     if (now - last_wifi_retry_ms_ >= WIFI_RETRY_MS) {
       last_wifi_retry_ms_ = now;
-      WiFi.begin(VESCOPE_WIFI_SSID, VESCOPE_WIFI_PASSWORD);
+      connectPrimaryWifi();
     }
     if (!ap_active_ && now - offline_since_ms_ >= WIFI_FALLBACK_AP_AFTER_MS) startFallbackAp();
   }
@@ -177,5 +252,7 @@ bool FieldConnectivity::staConnected() const { return WiFi.status() == WL_CONNEC
 String FieldConnectivity::staIp() const { return staConnected() ? WiFi.localIP().toString() : String(); }
 String FieldConnectivity::apIp() const { return ap_active_ ? WiFi.softAPIP().toString() : String(); }
 String FieldConnectivity::mdnsHost() const { return mdns_host_; }
+String FieldConnectivity::activeSsid() const { return wifi_ssid_; }
+bool FieldConnectivity::usingStoredWifi() const { return stored_wifi_; }
 
 }  // namespace vescope
