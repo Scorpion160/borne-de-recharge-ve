@@ -18,6 +18,16 @@
 #include "mqtt_ca.example.h"
 #endif
 
+#ifndef VESCOPE_HTTPS_FALLBACK_ENABLED
+#define VESCOPE_HTTPS_FALLBACK_ENABLED 0
+#endif
+#ifndef VESCOPE_HTTPS_INGEST_HOST
+#define VESCOPE_HTTPS_INGEST_HOST ""
+#endif
+#ifndef VESCOPE_HTTPS_INGEST_TOKEN
+#define VESCOPE_HTTPS_INGEST_TOKEN ""
+#endif
+
 namespace vescope {
 
 namespace {
