@@ -43,13 +43,22 @@ void BleService::begin(const char* device_id, const char* firmware_version) {
   info_characteristic->setValue(info.c_str());
   telemetry_characteristic->setValue("{\"quality\":\"UNAVAILABLE\"}");
   status_characteristic->setValue("{\"state\":\"BOOTING\"}");
-  service->start();
+
+  // Un paquet BLE legacy est limite a 31 octets. Le UUID 128 bits et le nom
+  // complet ne tiennent pas ensemble : UUID dans l'annonce, nom dans la
+  // scan-response afin de conserver VE-SCOPE-borne-01 visible au scan.
+  NimBLEAdvertisementData advertisement_data;
+  advertisement_data.addServiceUUID(BLE_SERVICE_UUID);
+
+  NimBLEAdvertisementData scan_response_data;
+  scan_response_data.setName(name.c_str());
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
-  advertising->addServiceUUID(BLE_SERVICE_UUID);
-  advertising->setName(name.c_str());
+  advertising->setAdvertisementData(advertisement_data);
+  advertising->setScanResponseData(scan_response_data);
   advertising->enableScanResponse(true);
   advertising->start();
+
   started_ = true;
   Serial.printf("[VE-SCOPE] BLE actif: %s\n", name.c_str());
 }
