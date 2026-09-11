@@ -21,24 +21,30 @@ namespace vescope {
 namespace {
 DNSServer dns_server;
 Preferences wifi_prefs;
+constexpr uint8_t FALLBACK_AP_CHANNEL = 6;
+constexpr uint8_t FALLBACK_AP_MAX_CLIENTS = 4;
+const IPAddress FALLBACK_AP_IP(192, 168, 4, 1);
+const IPAddress FALLBACK_AP_MASK(255, 255, 255, 0);
 }
 
 void FieldConnectivity::loadWifiCredentials() {
   wifi_prefs.begin("vescope-wifi", false);
-  const String stored_ssid = wifi_prefs.getString("ssid", "");
-  if (stored_ssid.length() > 0) {
-    wifi_ssid_ = stored_ssid;
+  if (wifi_prefs.isKey("ssid")) {
+    wifi_ssid_ = wifi_prefs.getString("ssid", "");
     wifi_password_ = wifi_prefs.getString("pass", "");
-    stored_wifi_ = true;
-  } else {
+    stored_wifi_ = wifi_ssid_.length() > 0;
+  }
+
+  if (!stored_wifi_) {
     wifi_ssid_ = VESCOPE_WIFI_SSID;
     wifi_password_ = VESCOPE_WIFI_PASSWORD;
-    stored_wifi_ = false;
   }
 }
 
 void FieldConnectivity::connectPrimaryWifi() {
-  if (wifi_ssid_.length() == 0) return;
+  if (wifi_ssid_.length() == 0 || ap_active_) return;
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(wifi_ssid_.c_str(), wifi_password_.c_str());
 }
 
@@ -52,6 +58,7 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
   loadWifiCredentials();
 
   WiFi.persistent(false);
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
   connectPrimaryWifi();
@@ -97,6 +104,7 @@ void FieldConnectivity::configureWebOta() {
     doc["fallback_ap_active"] = ap_active_;
     doc["fallback_ap_ssid"] = ap_active_ ? String(AP_SSID_PREFIX) + device_id_ : "";
     doc["fallback_ap_ip"] = apIp();
+    doc["fallback_ap_channel"] = FALLBACK_AP_CHANNEL;
     doc["mdns"] = mdns_host_ + ".local";
     doc["ota_web_path"] = "/update";
     doc["wifi_config_path"] = "/wifi";
@@ -113,8 +121,7 @@ void FieldConnectivity::configureWebOta() {
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VE-SCOPE OTA</title><style>body{font-family:system-ui;background:#071321;color:#eaf2fa;padding:24px}main{max-width:560px;margin:auto;background:#0d1d2f;border:1px solid #29435d;border-radius:16px;padding:24px}input,button{width:100%;box-sizing:border-box;margin-top:12px;padding:12px;border-radius:10px}button{background:#1765a4;color:white;border:0;font-weight:700}</style></head>
 <body><main><h1>VE-SCOPE OTA</h1><p>Selectionnez le fichier <code>firmware.bin</code> compile pour cette carte.</p>
-<form method="POST" action="/update" enctype="multipart/form-data"><input type="file" name="firmware" accept=".bin" required><button type="submit">Mettre a jour</button></form></main></body></html>
-)HTML";
+<form method="POST" action="/update" enctype="multipart/form-data"><input type="file" name="firmware" accept=".bin" required><button type="submit">Mettre a jour</button></form></main></body></html>)HTML";
     server_->send(200, "text/html; charset=utf-8", page);
   });
 
@@ -197,13 +204,35 @@ void FieldConnectivity::configureWifiPortal() {
 
 void FieldConnectivity::startFallbackAp() {
   if (ap_active_) return;
-  WiFi.mode(WIFI_AP_STA);
+
+  // Une fois en mode secours, stopper les scans/reconnexions STA afin que
+  // l'AP de maintenance reste stable et visible sur tous les clients 2,4 GHz.
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  WiFi.setSleep(false);
+  delay(100);
+
+  WiFi.softAPdisconnect(true);
+  delay(100);
+  WiFi.softAPConfig(FALLBACK_AP_IP, FALLBACK_AP_IP, FALLBACK_AP_MASK);
+
   const String ssid = String(AP_SSID_PREFIX) + device_id_;
-  if (WiFi.softAP(ssid.c_str(), VESCOPE_AP_PASSWORD)) {
+  const bool started = WiFi.softAP(
+      ssid.c_str(), VESCOPE_AP_PASSWORD,
+      FALLBACK_AP_CHANNEL, false, FALLBACK_AP_MAX_CLIENTS);
+
+  if (started) {
     ap_active_ = true;
-    dns_server.start(53, "*", WiFi.softAPIP());
-    Serial.printf("[VE-SCOPE] AP secours: %s @ %s\n", ssid.c_str(), WiFi.softAPIP().toString().c_str());
+    dns_server.start(53, "*", FALLBACK_AP_IP);
+    Serial.printf(
+        "[VE-SCOPE] AP secours stable: %s @ %s | canal=%u | visible=oui | BSSID=%s\n",
+        ssid.c_str(), WiFi.softAPIP().toString().c_str(),
+        FALLBACK_AP_CHANNEL, WiFi.softAPmacAddress().c_str());
     startMdnsIfNeeded();
+  } else {
+    Serial.println("[VE-SCOPE] ERREUR: demarrage AP secours impossible");
   }
 }
 
@@ -211,10 +240,12 @@ void FieldConnectivity::stopFallbackAp() {
   if (!ap_active_) return;
   dns_server.stop();
   WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_STA);
   ap_active_ = false;
   recovery_started_ms_ = 0;
-  Serial.println("[VE-SCOPE] AP secours arrete: Wi-Fi primaire stable");
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  connectPrimaryWifi();
+  Serial.println("[VE-SCOPE] AP secours arrete: nouvelle tentative Wi-Fi primaire");
 }
 
 void FieldConnectivity::startMdnsIfNeeded() {
@@ -224,26 +255,28 @@ void FieldConnectivity::startMdnsIfNeeded() {
 
 void FieldConnectivity::handle() {
   const uint32_t now = millis();
-  const bool connected = WiFi.status() == WL_CONNECTED;
 
+  // Pendant le portail de secours, privilegier une emission AP stable.
+  // Une nouvelle configuration Wi-Fi via /wifi redemarre l'ESP32 et retente le STA.
+  if (ap_active_) {
+    dns_server.processNextRequest();
+    if (ota_started_) ArduinoOTA.handle();
+    return;
+  }
+
+  const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected) {
     offline_since_ms_ = 0;
     startMdnsIfNeeded();
-    if (ap_active_) {
-      if (recovery_started_ms_ == 0) recovery_started_ms_ = now;
-      if (now - recovery_started_ms_ >= WIFI_AP_STOP_AFTER_RECOVERY_MS) stopFallbackAp();
-    }
   } else {
-    recovery_started_ms_ = 0;
     if (offline_since_ms_ == 0) offline_since_ms_ = now;
     if (now - last_wifi_retry_ms_ >= WIFI_RETRY_MS) {
       last_wifi_retry_ms_ = now;
       connectPrimaryWifi();
     }
-    if (!ap_active_ && now - offline_since_ms_ >= WIFI_FALLBACK_AP_AFTER_MS) startFallbackAp();
+    if (now - offline_since_ms_ >= WIFI_FALLBACK_AP_AFTER_MS) startFallbackAp();
   }
 
-  if (ap_active_) dns_server.processNextRequest();
   if (ota_started_) ArduinoOTA.handle();
 }
 
