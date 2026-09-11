@@ -58,7 +58,9 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
   loadWifiCredentials();
 
   WiFi.persistent(false);
-  WiFi.setSleep(false);
+  // ESP32 classique : lorsque BLE et Wi-Fi sont actifs simultanement,
+  // le modem sleep doit rester active pour la coexistence radio.
+  WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
   connectPrimaryWifi();
@@ -211,7 +213,9 @@ void FieldConnectivity::startFallbackAp() {
   WiFi.disconnect(false, false);
   delay(100);
   WiFi.mode(WIFI_AP);
-  WiFi.setSleep(false);
+  // Ne jamais desactiver le modem sleep avec BLE actif sur l'ESP32 classique :
+  // l'IDF l'interdit et provoque un abort de coexistence Wi-Fi/Bluetooth.
+  WiFi.setSleep(true);
   delay(100);
 
   WiFi.softAPdisconnect(true);
@@ -243,6 +247,7 @@ void FieldConnectivity::stopFallbackAp() {
   ap_active_ = false;
   recovery_started_ms_ = 0;
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   connectPrimaryWifi();
   Serial.println("[VE-SCOPE] AP secours arrete: nouvelle tentative Wi-Fi primaire");
