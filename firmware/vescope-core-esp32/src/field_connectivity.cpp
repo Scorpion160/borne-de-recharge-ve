@@ -164,15 +164,47 @@ void FieldConnectivity::configureWebOta() {
     doc["captive_portal_authenticated"] = portal_authenticated_;
     doc["captive_portal_last_http_code"] = portal_last_http_code_;
     doc["fallback_ap_active"] = ap_active_;
+    doc["maintenance_ap_forced"] = maintenance_ap_forced_;
     doc["fallback_ap_ssid"] = ap_active_ ? String(AP_SSID_PREFIX) + device_id_ : "";
     doc["fallback_ap_ip"] = apIp();
     doc["fallback_ap_channel"] = ap_active_ ? WiFi.channel() : FALLBACK_AP_CHANNEL;
     doc["mdns"] = mdns_host_ + ".local";
     doc["ota_web_path"] = "/update";
+    doc["maintenance_ap_start_path"] = "/api/maintenance/ap/start";
+    doc["maintenance_ap_stop_path"] = "/api/maintenance/ap/stop";
     doc["wifi_config_path"] = "/wifi";
     String payload;
     serializeJson(doc, payload);
     server_->send(200, "application/json; charset=utf-8", payload);
+  });
+
+  server_->on("/api/maintenance/ap/start", HTTP_POST, [this]() {
+    if (!server_->authenticate(VESCOPE_OTA_WEB_USER, VESCOPE_OTA_WEB_PASSWORD)) {
+      return server_->requestAuthentication();
+    }
+
+    maintenance_ap_forced_ = true;
+    startFallbackAp();
+
+    JsonDocument doc;
+    doc["ok"] = ap_active_;
+    doc["ssid"] = ap_active_ ? String(AP_SSID_PREFIX) + device_id_ : "";
+    doc["ip"] = apIp();
+    doc["mode"] = "AP+STA";
+    doc["ota_url"] = ap_active_ ? "http://192.168.4.1/update" : "";
+    String payload;
+    serializeJson(doc, payload);
+    server_->send(ap_active_ ? 200 : 500, "application/json; charset=utf-8", payload);
+  });
+
+  server_->on("/api/maintenance/ap/stop", HTTP_POST, [this]() {
+    if (!server_->authenticate(VESCOPE_OTA_WEB_USER, VESCOPE_OTA_WEB_PASSWORD)) {
+      return server_->requestAuthentication();
+    }
+
+    maintenance_ap_forced_ = false;
+    stopFallbackAp();
+    server_->send(200, "application/json; charset=utf-8", "{\"ok\":true,\"maintenance_ap_forced\":false}");
   });
 
   server_->on("/update", HTTP_GET, [this]() {
@@ -181,9 +213,13 @@ void FieldConnectivity::configureWebOta() {
     }
     const char page[] PROGMEM = R"HTML(
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VE-SCOPE OTA</title><style>body{font-family:system-ui;background:#071321;color:#eaf2fa;padding:24px}main{max-width:560px;margin:auto;background:#0d1d2f;border:1px solid #29435d;border-radius:16px;padding:24px}input,button{width:100%;box-sizing:border-box;margin-top:12px;padding:12px;border-radius:10px}button{background:#1765a4;color:white;border:0;font-weight:700}</style></head>
+<title>VE-SCOPE OTA</title><style>body{font-family:system-ui;background:#071321;color:#eaf2fa;padding:24px}main{max-width:620px;margin:auto;background:#0d1d2f;border:1px solid #29435d;border-radius:16px;padding:24px}input,button{width:100%;box-sizing:border-box;margin-top:12px;padding:12px;border-radius:10px}button{background:#1765a4;color:white;border:0;font-weight:700}.secondary{background:#29435d}small{color:#9fb2c6}</style></head>
 <body><main><h1>VE-SCOPE OTA</h1><p>Selectionnez le fichier <code>firmware.bin</code> compile pour cette carte.</p>
-<form method="POST" action="/update" enctype="multipart/form-data"><input type="file" name="firmware" accept=".bin" required><button type="submit">Mettre a jour</button></form></main></body></html>)HTML";
+<form method="POST" action="/update" enctype="multipart/form-data"><input type="file" name="firmware" accept=".bin" required><button type="submit">Mettre a jour</button></form>
+<hr><p><b>OTA terrain robuste</b></p><p><small>Si le Wi-Fi principal est faible, activez le point d'acces de maintenance, connectez le PC a <code>VE-SCOPE-borne-01</code>, puis ouvrez <code>http://192.168.4.1/update</code>.</small></p>
+<form method="POST" action="/api/maintenance/ap/start"><button class="secondary" type="submit">Activer AP maintenance</button></form>
+<form method="POST" action="/api/maintenance/ap/stop"><button class="secondary" type="submit">Arreter AP maintenance</button></form>
+</main></body></html>)HTML";
     server_->send(200, "text/html; charset=utf-8", page);
   });
 
@@ -381,7 +417,8 @@ void FieldConnectivity::startFallbackAp() {
     recovery_started_ms_ = 0;
     dns_server.start(53, "*", FALLBACK_AP_IP);
     Serial.printf(
-        "[VE-SCOPE] AP secours: %s @ %s | mode=AP+STA | canal=%u | visible=oui\n",
+        "[VE-SCOPE] AP %s: %s @ %s | mode=AP+STA | canal=%u | visible=oui\n",
+        maintenance_ap_forced_ ? "maintenance" : "secours",
         ssid.c_str(), WiFi.softAPIP().toString().c_str(), WiFi.channel());
     startMdnsIfNeeded();
   } else {
@@ -403,7 +440,7 @@ void FieldConnectivity::stopFallbackAp() {
   WiFi.setAutoReconnect(true);
 
   if (WiFi.status() != WL_CONNECTED) connectPrimaryWifi();
-  Serial.println("[VE-SCOPE] AP secours arrete: Wi-Fi primaire retabli");
+  Serial.println("[VE-SCOPE] AP maintenance/secours arrete: Wi-Fi primaire conserve");
 }
 
 void FieldConnectivity::startMdnsIfNeeded() {
@@ -460,7 +497,7 @@ void FieldConnectivity::handle() {
     }
 
     const bool primary_ready = !portal_enabled_ || portal_authenticated_;
-    if (ap_active_) {
+    if (ap_active_ && !maintenance_ap_forced_) {
       if (primary_ready) {
         if (recovery_started_ms_ == 0) {
           recovery_started_ms_ = now;
@@ -496,6 +533,7 @@ void FieldConnectivity::handle() {
 }
 
 bool FieldConnectivity::apActive() const { return ap_active_; }
+bool FieldConnectivity::maintenanceApForced() const { return maintenance_ap_forced_; }
 bool FieldConnectivity::staConnected() const { return WiFi.status() == WL_CONNECTED; }
 String FieldConnectivity::staIp() const { return staConnected() ? WiFi.localIP().toString() : String(); }
 String FieldConnectivity::apIp() const { return ap_active_ ? WiFi.softAPIP().toString() : String(); }
