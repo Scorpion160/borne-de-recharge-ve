@@ -52,6 +52,9 @@ uint32_t last_status_ms = 0;
 uint32_t last_diagnostics_ms = 0;
 uint32_t last_mqtt_attempt_ms = 0;
 uint32_t mqtt_retry_ms = MQTT_RETRY_MIN_MS;
+uint32_t last_pzem_error_log_ms = 0;
+uint32_t pzem_consecutive_errors = 0;
+String last_pzem_logged_error;
 
 struct SessionTracker {
   bool active = false;
@@ -164,13 +167,22 @@ String jsonString(JsonDocument& doc) {
   return output;
 }
 
+bool cloudNetworkReady() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (connectivity.captivePortalEnabled() && !connectivity.captivePortalAuthenticated()) return false;
+  return true;
+}
+
 const char* cloudTransport() {
+  if (!cloudNetworkReady()) return "OFFLINE";
   if (mqtt.connected()) return "MQTT_TLS";
   if (https_fallback.recentlySuccessful()) return "HTTPS";
   return "OFFLINE";
 }
 
 bool publishCloudPayload(const char* channel, const String& payload, bool retained = false) {
+  if (!cloudNetworkReady()) return false;
+
   if (mqtt.connected()) {
     if (mqtt.publish(topic(channel).c_str(), payload.c_str(), retained)) return true;
   }
@@ -206,6 +218,8 @@ void publishStatus() {
   doc["transport_wifi"] = connectivity.staConnected();
   doc["transport_ap"] = connectivity.apActive();
   doc["transport_ble"] = ble.connected();
+  doc["captive_portal_enabled"] = connectivity.captivePortalEnabled();
+  doc["captive_portal_authenticated"] = connectivity.captivePortalAuthenticated();
   doc["cloud_transport"] = cloudTransport();
   const String payload = jsonString(doc);
   ble.updateStatus(payload);
@@ -226,6 +240,9 @@ void publishDiagnostics() {
   doc["ap_ip"] = connectivity.apIp();
   doc["fallback_ap_active"] = connectivity.apActive();
   doc["mdns"] = connectivity.mdnsHost() + ".local";
+  doc["captive_portal_enabled"] = connectivity.captivePortalEnabled();
+  doc["captive_portal_authenticated"] = connectivity.captivePortalAuthenticated();
+  doc["captive_portal_last_http_code"] = connectivity.captivePortalLastHttpCode();
   doc["mqtt_connected"] = mqtt.connected();
   doc["https_fallback_ok"] = https_fallback.recentlySuccessful();
   doc["https_last_http_code"] = https_fallback.lastHttpCode();
@@ -235,6 +252,7 @@ void publishDiagnostics() {
   doc["ble_connected"] = ble.connected();
   doc["pzem_reads_ok"] = pzem.successCount();
   doc["pzem_errors"] = pzem.errorCount();
+  doc["pzem_consecutive_errors"] = pzem_consecutive_errors;
   doc["pzem_last_error"] = pzem.lastError();
   publishCloudJson("diagnostics", doc, false);
 }
@@ -354,7 +372,7 @@ void publishTelemetry(const PzemMeasurement& m) {
 }
 
 void connectMqttIfNeeded() {
-  if (mqtt.connected() || WiFi.status() != WL_CONNECTED) return;
+  if (mqtt.connected() || !cloudNetworkReady()) return;
 #if VESCOPE_MQTT_TLS
   if (strlen(VESCOPE_MQTT_ROOT_CA) == 0) return;
 #endif
@@ -384,7 +402,11 @@ void connectMqttIfNeeded() {
     publishStatus();
     publishDiagnostics();
   } else {
-    mqtt_retry_ms = min<uint32_t>(MQTT_RETRY_MAX_MS, mqtt_retry_ms * 2);
+    if (connectivity.captivePortalEnabled()) {
+      mqtt_retry_ms = MQTT_RETRY_CAPTIVE_MS;
+    } else {
+      mqtt_retry_ms = min<uint32_t>(MQTT_RETRY_MAX_MS, mqtt_retry_ms * 2);
+    }
     logLine(String("MQTT failed rc=") + mqtt.state() + " - HTTPS fallback available");
   }
 }
@@ -400,6 +422,9 @@ String statusJson() {
   doc["ap_active"] = connectivity.apActive();
   doc["ap_ip"] = connectivity.apIp();
   doc["mdns"] = connectivity.mdnsHost() + ".local";
+  doc["captive_portal_enabled"] = connectivity.captivePortalEnabled();
+  doc["captive_portal_authenticated"] = connectivity.captivePortalAuthenticated();
+  doc["captive_portal_last_http_code"] = connectivity.captivePortalLastHttpCode();
   doc["mqtt_connected"] = mqtt.connected();
   doc["https_fallback_ok"] = https_fallback.recentlySuccessful();
   doc["https_last_http_code"] = https_fallback.lastHttpCode();
@@ -443,8 +468,8 @@ void configureWebServer() {
   web.on("/", HTTP_GET, []() {
     const char page[] PROGMEM = R"HTML(
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VE-SCOPE Core</title><style>body{font-family:system-ui;background:#071321;color:#e9f1fa;margin:0;padding:24px}main{max-width:760px;margin:auto}.card{background:#0d1d2f;border:1px solid #243b55;border-radius:16px;padding:20px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.v{font-size:1.7rem;font-weight:700}small{color:#8fa7bf}code{color:#7fc4ff}</style></head>
-<body><main><h1>VE-SCOPE Core</h1><p>Interface locale terrain ESP32 / PZEM-004T.</p><div id="status" class="card">Chargement...</div><div id="values" class="grid"></div><div class="card"><small>Accès local</small><p><code>/api/status</code><br><code>/api/telemetry</code><br><code>/api/session</code><br><code>/api/connectivity</code><br><a href="/update" style="color:#7fc4ff">Mise à jour OTA</a></p></div></main>
+<title>VE-SCOPE Core</title><style>body{font-family:system-ui;background:#071321;color:#e9f1fa;margin:0;padding:24px}main{max-width:760px;margin:auto}.card{background:#0d1d2f;border:1px solid #243b55;border-radius:16px;padding:20px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.v{font-size:1.7rem;font-weight:700}small{color:#8fa7bf}code{color:#7fc4ff}a{color:#7fc4ff}</style></head>
+<body><main><h1>VE-SCOPE Core</h1><p>Interface locale terrain ESP32 / PZEM-004T.</p><div id="status" class="card">Chargement...</div><div id="values" class="grid"></div><div class="card"><small>Accès local</small><p><code>/api/status</code><br><code>/api/telemetry</code><br><code>/api/session</code><br><code>/api/connectivity</code><br><a href="/wifi">Configuration Wi-Fi / portail</a><br><a href="/update">Mise à jour OTA</a></p></div></main>
 <script>async function r(){try{let s=await (await fetch('/api/status')).json(),t=await (await fetch('/api/telemetry')).json();document.getElementById('status').innerHTML='<b>'+s.device_id+'</b> · '+s.state+' · CLOUD '+s.cloud_transport+' · PZEM '+(s.pzem_online?'OK':'OFF');let a=[['Tension',t.voltage_v,'V'],['Courant',t.current_a,'A'],['Puissance',t.active_power_w,'W'],['PF',t.power_factor,''],['Fréquence',t.frequency_hz,'Hz'],['Énergie',t.energy_total_wh,'Wh']];document.getElementById('values').innerHTML=a.map(x=>'<div class="card"><small>'+x[0]+'</small><div class="v">'+(x[1]??'—')+' '+x[2]+'</div></div>').join('')}catch(e){}}setInterval(r,1000);r()</script></body></html>)HTML";
     web.send(200, "text/html; charset=utf-8", page);
   });
@@ -495,7 +520,16 @@ void loop() {
   if (now - last_telemetry_ms >= TELEMETRY_PERIOD_MS) {
     last_telemetry_ms = now;
     PzemMeasurement measurement;
-    if (pzem.read(measurement) && measurementPhysicallyValid(measurement)) {
+    const bool pzem_read_ok = pzem.read(measurement);
+    const bool pzem_valid = pzem_read_ok && measurementPhysicallyValid(measurement);
+
+    if (pzem_valid) {
+      if (pzem_consecutive_errors > 0) {
+        logLine(String("PZEM recovered after ") + pzem_consecutive_errors + " failed reads");
+      }
+      pzem_consecutive_errors = 0;
+      last_pzem_logged_error = "";
+
       last_measurement = measurement;
       have_measurement = true;
       last_measurement_ms = now;
@@ -510,7 +544,18 @@ void loop() {
     } else {
       const bool cloud_ok = mqtt.connected() || https_fallback.recentlySuccessful();
       board_ui.showPzemOffline(connectivity.staConnected(), cloud_ok, ble.connected());
-      logLine(String("PZEM read failed: ") + pzem.lastError());
+
+      ++pzem_consecutive_errors;
+      const String error = pzem_read_ok ? String("physical_range") : String(pzem.lastError());
+      const bool error_changed = error != last_pzem_logged_error;
+      const bool periodic_log =
+          last_pzem_error_log_ms == 0 || now - last_pzem_error_log_ms >= PZEM_ERROR_LOG_PERIOD_MS;
+      if (pzem_consecutive_errors == 1 || error_changed || periodic_log) {
+        logLine(String("PZEM offline: ") + error +
+                " (consecutive_errors=" + pzem_consecutive_errors + ")");
+        last_pzem_logged_error = error;
+        last_pzem_error_log_ms = now;
+      }
     }
   }
 
