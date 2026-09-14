@@ -90,9 +90,15 @@ void FieldConnectivity::loadWifiCredentials() {
 }
 
 void FieldConnectivity::connectPrimaryWifi() {
-  if (wifi_ssid_.length() == 0 || ap_active_) return;
-  WiFi.mode(WIFI_STA);
+  if (wifi_ssid_.length() == 0 || WiFi.status() == WL_CONNECTED) return;
+
+  // En mode maintenance, conserver l'AP tout en permettant au STA de se
+  // reconnecter tout seul. Cela evite qu'une coupure Wi-Fi temporaire impose
+  // un redemarrage manuel de la borne.
+  WiFi.mode(ap_active_ ? WIFI_AP_STA : WIFI_STA);
+  WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
+  last_wifi_retry_ms_ = millis();
   WiFi.begin(wifi_ssid_.c_str(), wifi_password_.c_str());
 }
 
@@ -107,7 +113,7 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
 
   WiFi.persistent(false);
   // ESP32 classique : lorsque BLE et Wi-Fi sont actifs simultanement,
-  // le modem sleep doit rester active pour la coexistence radio.
+  // le modem sleep doit rester actif pour la coexistence radio.
   WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
@@ -160,7 +166,7 @@ void FieldConnectivity::configureWebOta() {
     doc["fallback_ap_active"] = ap_active_;
     doc["fallback_ap_ssid"] = ap_active_ ? String(AP_SSID_PREFIX) + device_id_ : "";
     doc["fallback_ap_ip"] = apIp();
-    doc["fallback_ap_channel"] = FALLBACK_AP_CHANNEL;
+    doc["fallback_ap_channel"] = ap_active_ ? WiFi.channel() : FALLBACK_AP_CHANNEL;
     doc["mdns"] = mdns_host_ + ".local";
     doc["ota_web_path"] = "/update";
     doc["wifi_config_path"] = "/wifi";
@@ -355,19 +361,14 @@ bool FieldConnectivity::authenticateCaptivePortal() {
 void FieldConnectivity::startFallbackAp() {
   if (ap_active_) return;
 
-  // Une fois en mode secours, stopper les scans/reconnexions STA afin que
-  // l'AP de maintenance reste stable et visible sur tous les clients 2,4 GHz.
-  WiFi.setAutoReconnect(false);
-  WiFi.disconnect(false, false);
-  delay(100);
-  WiFi.mode(WIFI_AP);
-  // Ne jamais desactiver le modem sleep avec BLE actif sur l'ESP32 classique :
-  // l'IDF l'interdit et provoque un abort de coexistence Wi-Fi/Bluetooth.
+  // Garder le STA actif en parallele du point d'acces de maintenance. L'AP
+  // reste disponible pour l'operateur tandis que la borne continue de tenter
+  // automatiquement son Wi-Fi primaire.
+  WiFi.setAutoReconnect(true);
+  WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(true);
   delay(100);
 
-  WiFi.softAPdisconnect(true);
-  delay(100);
   WiFi.softAPConfig(FALLBACK_AP_IP, FALLBACK_AP_IP, FALLBACK_AP_MASK);
 
   const String ssid = String(AP_SSID_PREFIX) + device_id_;
@@ -377,11 +378,11 @@ void FieldConnectivity::startFallbackAp() {
 
   if (started) {
     ap_active_ = true;
+    recovery_started_ms_ = 0;
     dns_server.start(53, "*", FALLBACK_AP_IP);
     Serial.printf(
-        "[VE-SCOPE] AP secours stable: %s @ %s | canal=%u | visible=oui | BSSID=%s\n",
-        ssid.c_str(), WiFi.softAPIP().toString().c_str(),
-        FALLBACK_AP_CHANNEL, WiFi.softAPmacAddress().c_str());
+        "[VE-SCOPE] AP secours: %s @ %s | mode=AP+STA | canal=%u | visible=oui\n",
+        ssid.c_str(), WiFi.softAPIP().toString().c_str(), WiFi.channel());
     startMdnsIfNeeded();
   } else {
     Serial.println("[VE-SCOPE] ERREUR: demarrage AP secours impossible");
@@ -390,15 +391,19 @@ void FieldConnectivity::startFallbackAp() {
 
 void FieldConnectivity::stopFallbackAp() {
   if (!ap_active_) return;
+
   dns_server.stop();
-  WiFi.softAPdisconnect(true);
+  // false = ne pas arreter l'interface Wi-Fi complete : le STA doit rester
+  // connecte si la recuperation du reseau primaire a deja reussi.
+  WiFi.softAPdisconnect(false);
   ap_active_ = false;
   recovery_started_ms_ = 0;
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
-  connectPrimaryWifi();
-  Serial.println("[VE-SCOPE] AP secours arrete: nouvelle tentative Wi-Fi primaire");
+
+  if (WiFi.status() != WL_CONNECTED) connectPrimaryWifi();
+  Serial.println("[VE-SCOPE] AP secours arrete: Wi-Fi primaire retabli");
 }
 
 void FieldConnectivity::startMdnsIfNeeded() {
@@ -409,13 +414,7 @@ void FieldConnectivity::startMdnsIfNeeded() {
 void FieldConnectivity::handle() {
   const uint32_t now = millis();
 
-  // Pendant le portail de secours, privilegier une emission AP stable.
-  // Une nouvelle configuration Wi-Fi via /wifi redemarre l'ESP32 et retente le STA.
-  if (ap_active_) {
-    dns_server.processNextRequest();
-    if (ota_started_) ArduinoOTA.handle();
-    return;
-  }
+  if (ap_active_) dns_server.processNextRequest();
 
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected) {
@@ -449,10 +448,9 @@ void FieldConnectivity::handle() {
           }
 
           if (!portal_authenticated_ && portal_failure_since_ms_ != 0 &&
-              now - portal_failure_since_ms_ >= PORTAL_FALLBACK_AFTER_MS) {
+              now - portal_failure_since_ms_ >= PORTAL_FALLBACK_AFTER_MS && !ap_active_) {
             Serial.println("[VE-SCOPE] Portail captif indisponible: activation AP secours");
             startFallbackAp();
-            return;
           }
         }
       }
@@ -460,17 +458,38 @@ void FieldConnectivity::handle() {
       portal_authenticated_ = true;
       portal_failure_since_ms_ = 0;
     }
+
+    const bool primary_ready = !portal_enabled_ || portal_authenticated_;
+    if (ap_active_) {
+      if (primary_ready) {
+        if (recovery_started_ms_ == 0) {
+          recovery_started_ms_ = now;
+          Serial.println("[VE-SCOPE] Wi-Fi primaire recupere: verification avant arret AP secours");
+        } else if (now - recovery_started_ms_ >= WIFI_AP_STOP_AFTER_RECOVERY_MS) {
+          stopFallbackAp();
+        }
+      } else {
+        recovery_started_ms_ = 0;
+      }
+    }
   } else {
     portal_authenticated_ = false;
     portal_failure_since_ms_ = 0;
     last_portal_probe_ms_ = 0;
     recovery_started_ms_ = 0;
+
     if (offline_since_ms_ == 0) offline_since_ms_ = now;
-    if (now - last_wifi_retry_ms_ >= WIFI_RETRY_MS) {
-      last_wifi_retry_ms_ = now;
+
+    const uint32_t retry_period = ap_active_ ? WIFI_AP_STA_RETRY_MS : WIFI_RETRY_MS;
+    if (now - last_wifi_retry_ms_ >= retry_period) {
       connectPrimaryWifi();
     }
-    if (now - offline_since_ms_ >= WIFI_FALLBACK_AP_AFTER_MS) startFallbackAp();
+
+    const uint32_t fallback_after =
+        portal_enabled_ ? WIFI_FALLBACK_AP_AFTER_PORTAL_MS : WIFI_FALLBACK_AP_AFTER_MS;
+    if (!ap_active_ && now - offline_since_ms_ >= fallback_after) {
+      startFallbackAp();
+    }
   }
 
   if (ota_started_) ArduinoOTA.handle();
