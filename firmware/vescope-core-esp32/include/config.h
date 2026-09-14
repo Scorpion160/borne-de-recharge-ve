@@ -5,7 +5,7 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.2.7-field";
+constexpr char FIRMWARE_VERSION[] = "0.2.8-field";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
@@ -40,18 +40,24 @@ constexpr int OLED_HEIGHT = 64;
 constexpr uint8_t PZEM_ADDRESS = 0xF8;
 constexpr uint32_t PZEM_BAUD = 9600;
 constexpr uint32_t PZEM_TIMEOUT_MS = 350;
+constexpr uint32_t PZEM_ERROR_LOG_PERIOD_MS = 30000;
 
 // Cadences
 constexpr uint32_t TELEMETRY_PERIOD_MS = 1000;
 constexpr uint32_t SESSION_PERIOD_MS = 5000;
 constexpr uint32_t STATUS_PERIOD_MS = 15000;
 constexpr uint32_t DIAGNOSTICS_PERIOD_MS = 10000;
-constexpr uint32_t WIFI_RETRY_MS = 5000;
+// L'association au Wi-Fi universitaire peut prendre > 5 s. Ne pas relancer
+// WiFi.begin() pendant qu'une association est encore en cours.
+constexpr uint32_t WIFI_RETRY_MS = 18000;
 constexpr uint32_t WIFI_FALLBACK_AP_AFTER_MS = 20000;
 constexpr uint32_t WIFI_AP_STOP_AFTER_RECOVERY_MS = 30000;
 constexpr uint32_t BLE_TELEMETRY_PERIOD_MS = 1000;
 constexpr uint32_t MQTT_RETRY_MIN_MS = 5000;
 constexpr uint32_t MQTT_RETRY_MAX_MS = 60000;
+// Sur un réseau avec portail captif, une fois le fallback HTTPS opérationnel,
+// éviter un handshake MQTT TLS bloquant toutes les 60 s.
+constexpr uint32_t MQTT_RETRY_CAPTIVE_MS = 300000;
 
 // Détection d'une session de recharge AC.
 constexpr float SESSION_START_POWER_W = 100.0F;
