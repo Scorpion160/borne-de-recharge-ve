@@ -5,7 +5,7 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.2.9-field";
+constexpr char FIRMWARE_VERSION[] = "0.2.10-field";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
@@ -47,6 +47,9 @@ constexpr uint32_t TELEMETRY_PERIOD_MS = 1000;
 constexpr uint32_t SESSION_PERIOD_MS = 5000;
 constexpr uint32_t STATUS_PERIOD_MS = 15000;
 constexpr uint32_t DIAGNOSTICS_PERIOD_MS = 10000;
+// En fallback HTTPS, conserver l'acquisition locale a 1 Hz mais limiter
+// l'envoi cloud a 0,2 Hz afin d'eviter un handshake TLS chaque seconde.
+constexpr uint32_t HTTPS_TELEMETRY_PERIOD_MS = 5000;
 
 // L'association a certains Wi-Fi geres peut prendre plusieurs dizaines de
 // secondes. Une nouvelle tentative ne doit jamais interrompre trop vite une
