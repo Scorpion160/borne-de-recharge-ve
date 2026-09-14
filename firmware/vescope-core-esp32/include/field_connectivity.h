@@ -10,6 +10,7 @@ class FieldConnectivity {
   void begin(WebServer& server, const char* device_id);
   void handle();
   bool apActive() const;
+  bool maintenanceApForced() const;
   bool staConnected() const;
   String staIp() const;
   String apIp() const;
@@ -47,6 +48,7 @@ class FieldConnectivity {
   uint32_t portal_failure_since_ms_ = 0;
   int portal_last_http_code_ = 0;
   bool ap_active_ = false;
+  bool maintenance_ap_forced_ = false;
   bool mdns_started_ = false;
   bool ota_started_ = false;
   bool stored_wifi_ = false;
