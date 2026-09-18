@@ -52,11 +52,11 @@ size_t fileSize(const char* path) {
   return size;
 }
 
-bool copyTail(const char* source_path, const char* tmp_path, uint32_t head) {
+bool copyRange(const char* source_path, const char* tmp_path, uint32_t offset, size_t length) {
   File source = SPIFFS.open(source_path, FILE_READ);
   if (!source) return false;
-  const size_t size = source.size();
-  if (head > size || !source.seek(head, SeekSet)) {
+  const size_t source_size = source.size();
+  if (offset > source_size || offset + length > source_size || !source.seek(offset, SeekSet)) {
     source.close();
     return false;
   }
@@ -69,24 +69,67 @@ bool copyTail(const char* source_path, const char* tmp_path, uint32_t head) {
   }
 
   uint8_t buffer[512];
+  size_t remaining = length;
   bool ok = true;
-  while (source.available()) {
-    const size_t count = source.read(buffer, sizeof(buffer));
-    if (count == 0) break;
-    if (target.write(buffer, count) != count) {
+  while (remaining > 0) {
+    const size_t wanted = min<size_t>(sizeof(buffer), remaining);
+    const size_t count = source.read(buffer, wanted);
+    if (count == 0 || target.write(buffer, count) != count) {
       ok = false;
       break;
     }
+    remaining -= count;
   }
   target.flush();
   target.close();
   source.close();
 
-  if (!ok) {
+  if (!ok || remaining != 0) {
     SPIFFS.remove(tmp_path);
     return false;
   }
   return true;
+}
+
+bool replaceWithTemp(const char* path, const char* tmp_path) {
+  SPIFFS.remove(path);
+  return SPIFFS.rename(tmp_path, path);
+}
+
+bool trimTelemetryTail() {
+  if (!SPIFFS.exists(TELEMETRY_PATH)) return true;
+  const size_t size = fileSize(TELEMETRY_PATH);
+  const size_t valid_size = (size / sizeof(DiskTelemetry)) * sizeof(DiskTelemetry);
+  if (valid_size == size) return true;
+  if (valid_size == 0) {
+    SPIFFS.remove(TELEMETRY_PATH);
+    return true;
+  }
+  if (!copyRange(TELEMETRY_PATH, TELEMETRY_TMP_PATH, 0, valid_size)) return false;
+  return replaceWithTemp(TELEMETRY_PATH, TELEMETRY_TMP_PATH);
+}
+
+bool trimSessionTail() {
+  if (!SPIFFS.exists(SESSION_PATH)) return true;
+  File file = SPIFFS.open(SESSION_PATH, FILE_READ);
+  if (!file) return false;
+  const size_t size = file.size();
+  size_t last_complete = 0;
+  size_t position = 0;
+  while (file.available()) {
+    const char c = static_cast<char>(file.read());
+    ++position;
+    if (c == '\n') last_complete = position;
+  }
+  file.close();
+
+  if (last_complete == size) return true;
+  if (last_complete == 0) {
+    SPIFFS.remove(SESSION_PATH);
+    return true;
+  }
+  if (!copyRange(SESSION_PATH, SESSION_TMP_PATH, 0, last_complete)) return false;
+  return replaceWithTemp(SESSION_PATH, SESSION_TMP_PATH);
 }
 }  // namespace
 
@@ -100,6 +143,37 @@ bool DurableStore::begin() {
   }
   if (fs_ok_) durable_prefs.putBool("fsinit", true);
   if (!fs_ok_) return false;
+
+  // Récupération transactionnelle d'une éventuelle compaction interrompue.
+  if (durable_prefs.getBool("tcompact", false)) {
+    if (SPIFFS.exists(TELEMETRY_TMP_PATH)) {
+      SPIFFS.remove(TELEMETRY_PATH);
+      SPIFFS.rename(TELEMETRY_TMP_PATH, TELEMETRY_PATH);
+    }
+    durable_prefs.putULong("thead", 0);
+    durable_prefs.putBool("tcompact", false);
+  } else if (SPIFFS.exists(TELEMETRY_TMP_PATH)) {
+    SPIFFS.remove(TELEMETRY_TMP_PATH);
+  }
+
+  if (durable_prefs.getBool("scompact", false)) {
+    if (SPIFFS.exists(SESSION_TMP_PATH)) {
+      SPIFFS.remove(SESSION_PATH);
+      SPIFFS.rename(SESSION_TMP_PATH, SESSION_PATH);
+    }
+    durable_prefs.putULong("shead", 0);
+    durable_prefs.putBool("scompact", false);
+  } else if (SPIFFS.exists(SESSION_TMP_PATH)) {
+    SPIFFS.remove(SESSION_TMP_PATH);
+  }
+
+  // Une coupure pendant le dernier write peut laisser quelques octets
+  // incomplets. On ne valide que les enregistrements ou lignes entièrement
+  // écrits ; la session NVS permet de régénérer un résumé interrompu.
+  if (!trimTelemetryTail() || !trimSessionTail()) {
+    fs_ok_ = false;
+    return false;
+  }
 
   boot_id_ = durable_prefs.getULong("boot", 0) + 1U;
   if (boot_id_ == 0) boot_id_ = 1;
@@ -136,11 +210,14 @@ bool DurableStore::compactTelemetry() {
     return true;
   }
 
-  if (!copyTail(TELEMETRY_PATH, TELEMETRY_TMP_PATH, telemetry_head_)) return false;
-  SPIFFS.remove(TELEMETRY_PATH);
-  if (!SPIFFS.rename(TELEMETRY_TMP_PATH, TELEMETRY_PATH)) return false;
+  const size_t remaining = size - telemetry_head_;
+  if (!copyRange(TELEMETRY_PATH, TELEMETRY_TMP_PATH, telemetry_head_, remaining)) return false;
+
+  durable_prefs.putBool("tcompact", true);
+  if (!replaceWithTemp(TELEMETRY_PATH, TELEMETRY_TMP_PATH)) return false;
   telemetry_head_ = 0;
   persistTelemetryHead(true);
+  durable_prefs.putBool("tcompact", false);
   return true;
 }
 
@@ -237,11 +314,14 @@ bool DurableStore::compactSessionSummaries() {
     return true;
   }
 
-  if (!copyTail(SESSION_PATH, SESSION_TMP_PATH, session_head_)) return false;
-  SPIFFS.remove(SESSION_PATH);
-  if (!SPIFFS.rename(SESSION_TMP_PATH, SESSION_PATH)) return false;
+  const size_t remaining = size - session_head_;
+  if (!copyRange(SESSION_PATH, SESSION_TMP_PATH, session_head_, remaining)) return false;
+
+  durable_prefs.putBool("scompact", true);
+  if (!replaceWithTemp(SESSION_PATH, SESSION_TMP_PATH)) return false;
   session_head_ = 0;
   durable_prefs.putULong("shead", 0);
+  durable_prefs.putBool("scompact", false);
   return true;
 }
 
@@ -276,9 +356,13 @@ bool DurableStore::peekSessionSummary(String& payload) {
     return false;
   }
 
+  bool complete = false;
   while (file.available()) {
     const char c = static_cast<char>(file.read());
-    if (c == '\n') break;
+    if (c == '\n') {
+      complete = true;
+      break;
+    }
     payload += c;
     if (payload.length() > 4096) {
       payload = "";
@@ -287,7 +371,7 @@ bool DurableStore::peekSessionSummary(String& payload) {
     }
   }
   file.close();
-  return payload.length() > 0;
+  return complete && payload.length() > 0;
 }
 
 bool DurableStore::popSessionSummary() {
@@ -301,12 +385,16 @@ bool DurableStore::popSessionSummary() {
   }
 
   uint32_t consumed = 0;
+  bool complete = false;
   while (file.available()) {
     ++consumed;
-    if (static_cast<char>(file.read()) == '\n') break;
+    if (static_cast<char>(file.read()) == '\n') {
+      complete = true;
+      break;
+    }
   }
   file.close();
-  if (consumed == 0) return false;
+  if (consumed == 0 || !complete) return false;
 
   session_head_ += consumed;
   if (session_head_ >= size) {
