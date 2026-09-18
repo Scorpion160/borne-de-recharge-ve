@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <PubSubClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -10,6 +11,7 @@
 #include "ble_service.h"
 #include "board_ui.h"
 #include "config.h"
+#include "durable_store.h"
 #include "field_connectivity.h"
 #include "https_fallback.h"
 #include "pzem_modbus.h"
@@ -40,13 +42,17 @@ WebServer web(80);
 BleService ble;
 FieldConnectivity connectivity;
 HttpsFallback https_fallback;
+DurableStore durable_store;
 BoardUi board_ui;
+Preferences session_prefs;
 
 PzemMeasurement last_measurement;
 bool have_measurement = false;
 uint32_t sequence_number = 0;
 uint32_t last_measurement_ms = 0;
 uint32_t last_telemetry_ms = 0;
+uint32_t last_durable_telemetry_ms = 0;
+uint32_t last_durable_flush_ms = 0;
 uint32_t last_session_ms = 0;
 uint32_t last_status_ms = 0;
 uint32_t last_diagnostics_ms = 0;
@@ -55,11 +61,13 @@ uint32_t mqtt_retry_ms = MQTT_RETRY_MIN_MS;
 uint32_t last_pzem_error_log_ms = 0;
 uint32_t pzem_consecutive_errors = 0;
 String last_pzem_logged_error;
+bool durable_queue_error = false;
 
 struct SessionTracker {
   bool active = false;
   String id;
   String started_at;
+  time_t started_epoch = 0;
   uint32_t started_ms = 0;
   float start_energy_total_wh = 0.0F;
   uint32_t samples = 0;
@@ -74,6 +82,7 @@ struct SessionTracker {
   float max_frequency_hz = 0.0F;
   uint8_t start_confirm = 0;
   uint8_t stop_confirm = 0;
+  bool restored_after_reboot = false;
 } session;
 
 String topic(const char* suffix) {
@@ -115,22 +124,28 @@ void seedClockFromBuild() {
   settimeofday(&tv, nullptr);
 }
 
-String isoNow() {
-  time_t now = time(nullptr);
+String isoFromEpoch(time_t epoch) {
   tm utc{};
-  gmtime_r(&now, &utc);
+  gmtime_r(&epoch, &utc);
   char buffer[25];
   strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &utc);
   return String(buffer);
 }
 
-String makeSessionId() {
-  time_t now = time(nullptr);
+String isoNow() { return isoFromEpoch(time(nullptr)); }
+
+String makeSessionIdFromEpoch(time_t epoch) {
   tm utc{};
-  gmtime_r(&now, &utc);
+  gmtime_r(&epoch, &utc);
   char buffer[40];
   strftime(buffer, sizeof(buffer), "VE01-%Y%m%d-%H%M%S", &utc);
   return String(buffer);
+}
+
+String makeSessionId() { return makeSessionIdFromEpoch(time(nullptr)); }
+
+String telemetrySampleId(uint32_t boot_id, uint32_t sequence) {
+  return String(DEVICE_ID) + ":" + String(boot_id) + ":" + String(sequence);
 }
 
 bool measurementPhysicallyValid(const PzemMeasurement& m) {
@@ -142,23 +157,70 @@ bool measurementPhysicallyValid(const PzemMeasurement& m) {
          m.power_factor >= 0.0F && m.power_factor <= 1.0F;
 }
 
-void fillTelemetry(JsonDocument& doc, const PzemMeasurement& m) {
-  const float apparent = m.voltage_v * m.current_a;
-  const float q_squared = max(0.0F, apparent * apparent - m.active_power_w * m.active_power_w);
+void addTelemetryFields(
+    JsonDocument& doc,
+    uint32_t boot_id,
+    uint32_t sequence,
+    time_t epoch,
+    uint32_t session_epoch_s,
+    float voltage_v,
+    float current_a,
+    float active_power_w,
+    float power_factor,
+    float frequency_hz,
+    float energy_total_wh) {
+  const float apparent = voltage_v * current_a;
+  const float q_squared = max(0.0F, apparent * apparent - active_power_w * active_power_w);
 
   doc["schema"] = 1;
   doc["device_id"] = DEVICE_ID;
-  doc["timestamp"] = isoNow();
-  doc["sequence"] = sequence_number;
+  doc["timestamp"] = isoFromEpoch(epoch);
+  doc["boot_id"] = boot_id;
+  doc["sequence"] = sequence;
+  doc["sample_id"] = telemetrySampleId(boot_id, sequence);
+  if (session_epoch_s != 0) {
+    doc["session_id"] = makeSessionIdFromEpoch(static_cast<time_t>(session_epoch_s));
+  }
   doc["quality"] = "GOOD";
-  doc["voltage_v"] = m.voltage_v;
-  doc["current_a"] = m.current_a;
-  doc["active_power_w"] = m.active_power_w;
+  doc["voltage_v"] = voltage_v;
+  doc["current_a"] = current_a;
+  doc["active_power_w"] = active_power_w;
   doc["apparent_power_va"] = apparent;
   doc["non_active_power_var_est"] = sqrtf(q_squared);
-  doc["power_factor"] = m.power_factor;
-  doc["frequency_hz"] = m.frequency_hz;
-  doc["energy_total_wh"] = m.energy_total_wh;
+  doc["power_factor"] = power_factor;
+  doc["frequency_hz"] = frequency_hz;
+  doc["energy_total_wh"] = energy_total_wh;
+}
+
+void fillTelemetry(JsonDocument& doc, const PzemMeasurement& m) {
+  addTelemetryFields(
+      doc,
+      durable_store.bootId(),
+      sequence_number,
+      time(nullptr),
+      session.active ? static_cast<uint32_t>(session.started_epoch) : 0,
+      m.voltage_v,
+      m.current_a,
+      m.active_power_w,
+      m.power_factor,
+      m.frequency_hz,
+      m.energy_total_wh);
+}
+
+void fillDurableTelemetry(JsonDocument& doc, const DurableTelemetry& m) {
+  addTelemetryFields(
+      doc,
+      m.boot_id,
+      m.sequence,
+      static_cast<time_t>(m.epoch_s),
+      m.session_epoch_s,
+      m.voltage_v,
+      m.current_a,
+      m.active_power_w,
+      m.power_factor,
+      m.frequency_hz,
+      m.energy_total_wh);
+  doc["durable_replay"] = true;
 }
 
 String jsonString(JsonDocument& doc) {
@@ -206,6 +268,45 @@ String stationState() {
   return session.active ? "CHARGING" : "IDLE";
 }
 
+void persistActiveSession() {
+  session_prefs.putBool("active", session.active);
+  if (!session.active) return;
+  session_prefs.putString("id", session.id);
+  session_prefs.putString("started", session.started_at);
+  session_prefs.putULong64("epoch", static_cast<uint64_t>(session.started_epoch));
+  session_prefs.putFloat("energy0", session.start_energy_total_wh);
+}
+
+void clearPersistedSession() {
+  session_prefs.putBool("active", false);
+  session_prefs.remove("id");
+  session_prefs.remove("started");
+  session_prefs.remove("epoch");
+  session_prefs.remove("energy0");
+}
+
+void restorePersistedSession() {
+  if (!session_prefs.getBool("active", false)) return;
+
+  const String id = session_prefs.getString("id", "");
+  const String started = session_prefs.getString("started", "");
+  const uint64_t epoch = session_prefs.getULong64("epoch", 0);
+  const float energy0 = session_prefs.getFloat("energy0", -1.0F);
+  if (id.length() == 0 || started.length() == 0 || epoch < 1700000000ULL || energy0 < 0.0F) {
+    clearPersistedSession();
+    return;
+  }
+
+  session.active = true;
+  session.id = id;
+  session.started_at = started;
+  session.started_epoch = static_cast<time_t>(epoch);
+  session.started_ms = millis();
+  session.start_energy_total_wh = energy0;
+  session.restored_after_reboot = true;
+  logLine(String("Session restored after reboot: ") + session.id);
+}
+
 void publishStatus() {
   JsonDocument doc;
   doc["schema"] = 1;
@@ -214,13 +315,14 @@ void publishStatus() {
   doc["online"] = true;
   doc["state"] = stationState();
   doc["firmware"] = FIRMWARE_VERSION;
-  doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < 3000);
+  doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < PZEM_ONLINE_GRACE_MS);
   doc["transport_wifi"] = connectivity.staConnected();
   doc["transport_ap"] = connectivity.apActive();
   doc["transport_ble"] = ble.connected();
   doc["captive_portal_enabled"] = connectivity.captivePortalEnabled();
   doc["captive_portal_authenticated"] = connectivity.captivePortalAuthenticated();
   doc["cloud_transport"] = cloudTransport();
+  doc["durable_pending"] = durable_store.pendingTelemetry();
   const String payload = jsonString(doc);
   ble.updateStatus(payload);
   publishCloudPayload("status", payload, true);
@@ -250,17 +352,25 @@ void publishDiagnostics() {
   doc["https_publish_errors"] = https_fallback.errorCount();
   doc["cloud_transport"] = cloudTransport();
   doc["ble_connected"] = ble.connected();
+  doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < PZEM_ONLINE_GRACE_MS);
   doc["pzem_reads_ok"] = pzem.successCount();
   doc["pzem_errors"] = pzem.errorCount();
   doc["pzem_consecutive_errors"] = pzem_consecutive_errors;
   doc["pzem_last_error"] = pzem.lastError();
+  doc["boot_id"] = durable_store.bootId();
+  doc["durable_store_ok"] = durable_store.healthy();
+  doc["durable_queue_error"] = durable_queue_error;
+  doc["durable_pending_telemetry"] = durable_store.pendingTelemetry();
+  doc["durable_pending_bytes"] = durable_store.telemetryBytes();
+  doc["durable_pending_summaries"] = durable_store.pendingSessionSummaries();
   publishCloudJson("diagnostics", doc, false);
 }
 
 void startSession(const PzemMeasurement& m) {
   session.active = true;
-  session.id = makeSessionId();
-  session.started_at = isoNow();
+  session.started_epoch = time(nullptr);
+  session.id = makeSessionIdFromEpoch(session.started_epoch);
+  session.started_at = isoFromEpoch(session.started_epoch);
   session.started_ms = millis();
   session.start_energy_total_wh = m.energy_total_wh;
   session.samples = 0;
@@ -275,6 +385,8 @@ void startSession(const PzemMeasurement& m) {
   session.max_frequency_hz = 0.0F;
   session.start_confirm = 0;
   session.stop_confirm = 0;
+  session.restored_after_reboot = false;
+  persistActiveSession();
   logLine(String("Session started: ") + session.id);
   publishStatus();
 }
@@ -282,6 +394,14 @@ void startSession(const PzemMeasurement& m) {
 float sessionEnergyWh(const PzemMeasurement& m) {
   const float delta = m.energy_total_wh - session.start_energy_total_wh;
   return max(0.0F, delta);
+}
+
+uint32_t sessionDurationS() {
+  const time_t now = time(nullptr);
+  if (session.started_epoch > 0 && now >= session.started_epoch) {
+    return static_cast<uint32_t>(now - session.started_epoch);
+  }
+  return (millis() - session.started_ms) / 1000;
 }
 
 void updateSessionStats(const PzemMeasurement& m) {
@@ -299,8 +419,9 @@ void updateSessionStats(const PzemMeasurement& m) {
 }
 
 void fillSession(JsonDocument& doc, const PzemMeasurement& m, bool summary) {
-  const uint32_t duration_s = (millis() - session.started_ms) / 1000;
-  const double avg_power = session.samples ? session.sum_power_w / session.samples : 0.0;
+  const uint32_t duration_s = sessionDurationS();
+  const float energy_wh = sessionEnergyWh(m);
+  const double avg_power = duration_s > 0 ? (static_cast<double>(energy_wh) * 3600.0) / duration_s : 0.0;
   const double avg_pf = session.samples ? session.sum_pf / session.samples : 0.0;
 
   doc["schema"] = 1;
@@ -310,18 +431,19 @@ void fillSession(JsonDocument& doc, const PzemMeasurement& m, bool summary) {
   doc["started_at"] = session.started_at;
   if (summary) doc["ended_at"] = isoNow();
   doc["duration_s"] = duration_s;
-  doc["energy_wh"] = sessionEnergyWh(m);
+  doc["energy_wh"] = energy_wh;
   doc["average_power_w"] = avg_power;
   doc["max_power_w"] = session.max_power_w;
   doc["max_current_a"] = session.max_current_a;
   doc["average_power_factor"] = avg_pf;
+  doc["resumed_after_reboot"] = session.restored_after_reboot;
   if (summary) {
-    doc["min_voltage_v"] = session.min_voltage_v;
-    doc["max_voltage_v"] = session.max_voltage_v;
-    doc["min_power_factor"] = session.min_pf;
-    doc["min_frequency_hz"] = session.min_frequency_hz;
-    doc["max_frequency_hz"] = session.max_frequency_hz;
-    doc["interruptions"] = 0;
+    doc["min_voltage_v"] = session.min_voltage_v < 9999.0F ? session.min_voltage_v : m.voltage_v;
+    doc["max_voltage_v"] = max(session.max_voltage_v, m.voltage_v);
+    doc["min_power_factor"] = session.min_pf <= 1.0F ? session.min_pf : m.power_factor;
+    doc["min_frequency_hz"] = session.min_frequency_hz < 999.0F ? session.min_frequency_hz : m.frequency_hz;
+    doc["max_frequency_hz"] = max(session.max_frequency_hz, m.frequency_hz);
+    doc["interruptions"] = session.restored_after_reboot ? 1 : 0;
     doc["end_reason"] = "CURRENT_BELOW_THRESHOLD";
   }
 }
@@ -337,10 +459,21 @@ void finishSession(const PzemMeasurement& m) {
   if (!session.active) return;
   JsonDocument doc;
   fillSession(doc, m, true);
-  publishCloudJson("session/summary", doc, false);
-  logLine(String("Session completed: ") + session.id);
+  const String summary = jsonString(doc);
+
+  // Écrire d'abord le résumé sur flash. La session NVS n'est effacée qu'une
+  // fois cette écriture confirmée, afin qu'un reset au mauvais moment ne fasse
+  // jamais disparaître la fin d'une recharge.
+  if (!durable_store.enqueueSessionSummary(summary)) {
+    durable_queue_error = true;
+    logLine("CRITICAL: impossible de journaliser le resume de session");
+    return;
+  }
+
+  logLine(String("Session completed locally: ") + session.id + " (queued)");
   session.active = false;
   session.stop_confirm = 0;
+  clearPersistedSession();
   publishStatus();
 }
 
@@ -358,17 +491,70 @@ void processSession(const PzemMeasurement& m) {
   if (session.stop_confirm >= SESSION_STOP_CONFIRM_SAMPLES) finishSession(m);
 }
 
+void queueDurableTelemetry(const PzemMeasurement& m) {
+  DurableTelemetry record;
+  record.boot_id = durable_store.bootId();
+  record.sequence = sequence_number;
+  record.epoch_s = static_cast<uint32_t>(time(nullptr));
+  record.session_epoch_s = session.active ? static_cast<uint32_t>(session.started_epoch) : 0;
+  record.voltage_v = m.voltage_v;
+  record.current_a = m.current_a;
+  record.active_power_w = m.active_power_w;
+  record.power_factor = m.power_factor;
+  record.frequency_hz = m.frequency_hz;
+  record.energy_total_wh = m.energy_total_wh;
+
+  if (!durable_store.enqueueTelemetry(record)) {
+    durable_queue_error = true;
+    logLine("CRITICAL: file durable pleine ou indisponible - intervention requise");
+  }
+}
+
 void publishTelemetry(const PzemMeasurement& m) {
   ++sequence_number;
   JsonDocument doc;
   fillTelemetry(doc, m);
   const String payload = jsonString(doc);
 
-  // USB série : une trame JSON par ligne, directement exploitable par un PC.
+  // USB série et BLE conservent la cadence locale de 1 Hz.
   Serial.println(payload);
-
   ble.updateTelemetry(payload);
-  publishCloudPayload("telemetry/ac", payload, false);
+
+  const uint32_t now = millis();
+  if (last_durable_telemetry_ms == 0 || now - last_durable_telemetry_ms >= DURABLE_TELEMETRY_PERIOD_MS) {
+    last_durable_telemetry_ms = now;
+    queueDurableTelemetry(m);
+  }
+}
+
+void flushDurableOutbox() {
+  if (!durable_store.healthy() || !cloudNetworkReady()) return;
+  const uint32_t now = millis();
+  if (last_durable_flush_ms != 0 && now - last_durable_flush_ms < DURABLE_FLUSH_PERIOD_MS) return;
+  last_durable_flush_ms = now;
+
+  // Toujours vider la télémétrie dans l'ordre avant les résumés de session.
+  // Le serveur peut ainsi reconstruire une recharge complète avant de recevoir
+  // son événement de clôture.
+  DurableTelemetry record;
+  if (durable_store.peekTelemetry(record)) {
+    JsonDocument doc;
+    fillDurableTelemetry(doc, record);
+    if (https_fallback.publish(DEVICE_ID, "telemetry/ac", jsonString(doc))) {
+      durable_store.popTelemetry();
+      durable_queue_error = false;
+    }
+    return;
+  }
+
+  String summary;
+  if (durable_store.peekSessionSummary(summary)) {
+    if (https_fallback.publish(DEVICE_ID, "session/summary", summary)) {
+      durable_store.popSessionSummary();
+      durable_queue_error = false;
+      logLine("Durable session summary delivered");
+    }
+  }
 }
 
 void connectMqttIfNeeded() {
@@ -430,7 +616,10 @@ String statusJson() {
   doc["https_last_http_code"] = https_fallback.lastHttpCode();
   doc["cloud_transport"] = cloudTransport();
   doc["ble_connected"] = ble.connected();
-  doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < 3000);
+  doc["pzem_online"] = have_measurement && (millis() - last_measurement_ms < PZEM_ONLINE_GRACE_MS);
+  doc["durable_store_ok"] = durable_store.healthy();
+  doc["durable_pending_telemetry"] = durable_store.pendingTelemetry();
+  doc["durable_pending_summaries"] = durable_store.pendingSessionSummaries();
   doc["uptime_s"] = millis() / 1000;
   return jsonString(doc);
 }
@@ -462,6 +651,7 @@ void configureWebServer() {
     doc["active"] = session.active;
     doc["session_id"] = session.id;
     doc["state"] = stationState();
+    doc["restored_after_reboot"] = session.restored_after_reboot;
     if (session.active && have_measurement) fillSession(doc, last_measurement, false);
     web.send(200, "application/json; charset=utf-8", jsonString(doc));
   });
@@ -470,7 +660,7 @@ void configureWebServer() {
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VE-SCOPE Core</title><style>body{font-family:system-ui;background:#071321;color:#e9f1fa;margin:0;padding:24px}main{max-width:760px;margin:auto}.card{background:#0d1d2f;border:1px solid #243b55;border-radius:16px;padding:20px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.v{font-size:1.7rem;font-weight:700}small{color:#8fa7bf}code{color:#7fc4ff}a{color:#7fc4ff}</style></head>
 <body><main><h1>VE-SCOPE Core</h1><p>Interface locale terrain ESP32 / PZEM-004T.</p><div id="status" class="card">Chargement...</div><div id="values" class="grid"></div><div class="card"><small>Accès local</small><p><code>/api/status</code><br><code>/api/telemetry</code><br><code>/api/session</code><br><code>/api/connectivity</code><br><a href="/wifi">Configuration Wi-Fi / portail</a><br><a href="/update">Mise à jour OTA</a></p></div></main>
-<script>async function r(){try{let s=await (await fetch('/api/status')).json(),t=await (await fetch('/api/telemetry')).json();document.getElementById('status').innerHTML='<b>'+s.device_id+'</b> · '+s.state+' · CLOUD '+s.cloud_transport+' · PZEM '+(s.pzem_online?'OK':'OFF');let a=[['Tension',t.voltage_v,'V'],['Courant',t.current_a,'A'],['Puissance',t.active_power_w,'W'],['PF',t.power_factor,''],['Fréquence',t.frequency_hz,'Hz'],['Énergie',t.energy_total_wh,'Wh']];document.getElementById('values').innerHTML=a.map(x=>'<div class="card"><small>'+x[0]+'</small><div class="v">'+(x[1]??'—')+' '+x[2]+'</div></div>').join('')}catch(e){}}setInterval(r,1000);r()</script></body></html>)HTML";
+<script>async function r(){try{let s=await (await fetch('/api/status')).json(),t=await (await fetch('/api/telemetry')).json();document.getElementById('status').innerHTML='<b>'+s.device_id+'</b> · '+s.state+' · CLOUD '+s.cloud_transport+' · PZEM '+(s.pzem_online?'OK':'OFF')+' · QUEUE '+s.durable_pending_telemetry;let a=[['Tension',t.voltage_v,'V'],['Courant',t.current_a,'A'],['Puissance',t.active_power_w,'W'],['PF',t.power_factor,''],['Fréquence',t.frequency_hz,'Hz'],['Énergie',t.energy_total_wh,'Wh']];document.getElementById('values').innerHTML=a.map(x=>'<div class="card"><small>'+x[0]+'</small><div class="v">'+(x[1]??'—')+' '+x[2]+'</div></div>').join('')}catch(e){}}setInterval(r,1000);r()</script></body></html>)HTML";
     web.send(200, "text/html; charset=utf-8", page);
   });
   web.begin();
@@ -485,6 +675,17 @@ void setup() {
 
   seedClockFromBuild();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
+
+  session_prefs.begin("vescope-session", false);
+  restorePersistedSession();
+
+  if (durable_store.begin()) {
+    logLine(String("Durable store ready, boot_id=") + durable_store.bootId() +
+            ", pending=" + durable_store.pendingTelemetry());
+  } else {
+    durable_queue_error = true;
+    logLine("CRITICAL: durable store unavailable");
+  }
 
   pzem.begin(PZEM_BAUD, PZEM_RX_PIN, PZEM_TX_PIN);
 
@@ -515,6 +716,7 @@ void loop() {
   connectivity.handle();
   connectMqttIfNeeded();
   if (mqtt.connected()) mqtt.loop();
+  flushDurableOutbox();
 
   const uint32_t now = millis();
   if (now - last_telemetry_ms >= TELEMETRY_PERIOD_MS) {
