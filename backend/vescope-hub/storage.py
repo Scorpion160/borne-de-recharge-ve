@@ -25,6 +25,22 @@ def parse_timestamp(value: Any) -> datetime:
     return datetime.now(timezone.utc)
 
 
+def telemetry_sample_id(device_id: str, payload: dict[str, Any]) -> str:
+    explicit = payload.get("sample_id")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+
+    boot_id = payload.get("boot_id")
+    sequence = payload.get("sequence")
+    if boot_id is not None and sequence is not None:
+        return f"{device_id}:{boot_id}:{sequence}"
+
+    # Compatibilité avec les anciennes trames : l'horodatage évite que les
+    # séquences redémarrant à zéro après reboot écrasent des mesures réelles.
+    timestamp = str(payload.get("timestamp") or "unknown")
+    return f"{device_id}:legacy:{timestamp}:{sequence}"
+
+
 class Database:
     def __init__(self) -> None:
         self.pool: asyncpg.Pool | None = None
@@ -78,7 +94,10 @@ class Database:
                 device_id TEXT NOT NULL,
                 measured_at TIMESTAMPTZ NOT NULL,
                 received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                sample_id TEXT,
+                boot_id BIGINT,
                 sequence BIGINT,
+                session_id TEXT,
                 quality TEXT,
                 voltage_v DOUBLE PRECISION,
                 current_a DOUBLE PRECISION,
@@ -88,13 +107,32 @@ class Database:
                 power_factor DOUBLE PRECISION,
                 frequency_hz DOUBLE PRECISION,
                 energy_total_wh DOUBLE PRECISION,
-                raw JSONB NOT NULL,
-                UNIQUE(device_id, sequence)
+                raw JSONB NOT NULL
             )
+            """,
+            """
+            ALTER TABLE telemetry_ac ADD COLUMN IF NOT EXISTS sample_id TEXT
+            """,
+            """
+            ALTER TABLE telemetry_ac ADD COLUMN IF NOT EXISTS boot_id BIGINT
+            """,
+            """
+            ALTER TABLE telemetry_ac ADD COLUMN IF NOT EXISTS session_id TEXT
+            """,
+            """
+            ALTER TABLE telemetry_ac DROP CONSTRAINT IF EXISTS telemetry_ac_device_id_sequence_key
+            """,
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_ac_sample_id_unique
+            ON telemetry_ac(sample_id)
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_telemetry_ac_device_time
             ON telemetry_ac(device_id, measured_at DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_telemetry_ac_session_time
+            ON telemetry_ac(session_id, measured_at ASC)
             """,
             """
             CREATE TABLE IF NOT EXISTS charging_sessions (
@@ -154,9 +192,18 @@ class Database:
             for statement in statements:
                 await conn.execute(statement)
 
-    async def save(self, device_id: str, channel: str, payload: dict[str, Any]) -> None:
+    async def save(
+        self,
+        device_id: str,
+        channel: str,
+        payload: dict[str, Any],
+        *,
+        durable: bool = False,
+    ) -> bool:
         if not self.available or self.pool is None:
-            return
+            if durable:
+                raise RuntimeError("PostgreSQL indisponible")
+            return False
         try:
             if channel == "status":
                 await self._save_status(device_id, payload)
@@ -168,9 +215,13 @@ class Database:
                 await self._save_session(device_id, payload, summary=True)
             elif channel == "alerts":
                 await self.save_event(device_id, payload)
+            return True
         except Exception as exc:
             self.last_error = str(exc)
             print(f"[DB] Persistence error on {device_id}/{channel}: {exc}", flush=True)
+            if durable:
+                raise RuntimeError(str(exc)) from exc
+            return False
 
     async def _save_status(self, device_id: str, payload: dict[str, Any]) -> None:
         assert self.pool is not None
@@ -190,20 +241,33 @@ class Database:
 
     async def _save_telemetry(self, device_id: str, payload: dict[str, Any]) -> None:
         assert self.pool is not None
+        sample_id = telemetry_sample_id(device_id, payload)
         await self.pool.execute(
             """
             INSERT INTO telemetry_ac(
-                device_id, measured_at, sequence, quality, voltage_v, current_a,
-                active_power_w, apparent_power_va, non_active_power_var_est,
-                power_factor, frequency_hz, energy_total_wh, raw
-            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
-            ON CONFLICT(device_id, sequence) DO NOTHING
+                device_id, measured_at, sample_id, boot_id, sequence, session_id,
+                quality, voltage_v, current_a, active_power_w, apparent_power_va,
+                non_active_power_var_est, power_factor, frequency_hz,
+                energy_total_wh, raw
+            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+            ON CONFLICT(sample_id) DO NOTHING
             """,
             device_id,
             parse_timestamp(payload.get("timestamp")),
-            payload.get("sequence"), payload.get("quality"), payload.get("voltage_v"), payload.get("current_a"),
-            payload.get("active_power_w"), payload.get("apparent_power_va"), payload.get("non_active_power_var_est"),
-            payload.get("power_factor"), payload.get("frequency_hz"), payload.get("energy_total_wh"), json.dumps(payload),
+            sample_id,
+            payload.get("boot_id"),
+            payload.get("sequence"),
+            payload.get("session_id"),
+            payload.get("quality"),
+            payload.get("voltage_v"),
+            payload.get("current_a"),
+            payload.get("active_power_w"),
+            payload.get("apparent_power_va"),
+            payload.get("non_active_power_var_est"),
+            payload.get("power_factor"),
+            payload.get("frequency_hz"),
+            payload.get("energy_total_wh"),
+            json.dumps(payload),
         )
 
     async def _save_session(self, device_id: str, payload: dict[str, Any], summary: bool) -> None:
@@ -225,8 +289,8 @@ class Database:
                 duration_s = EXCLUDED.duration_s,
                 energy_wh = EXCLUDED.energy_wh,
                 average_power_w = EXCLUDED.average_power_w,
-                max_power_w = EXCLUDED.max_power_w,
-                max_current_a = EXCLUDED.max_current_a,
+                max_power_w = GREATEST(COALESCE(charging_sessions.max_power_w, 0), COALESCE(EXCLUDED.max_power_w, 0)),
+                max_current_a = GREATEST(COALESCE(charging_sessions.max_current_a, 0), COALESCE(EXCLUDED.max_current_a, 0)),
                 average_power_factor = EXCLUDED.average_power_factor,
                 end_reason = COALESCE(EXCLUDED.end_reason, charging_sessions.end_reason),
                 updated_at = NOW(),
@@ -257,8 +321,10 @@ class Database:
             return []
         rows = await self.pool.fetch(
             """
-            SELECT measured_at, sequence, quality, voltage_v, current_a, active_power_w,
-                   apparent_power_va, non_active_power_var_est, power_factor, frequency_hz, energy_total_wh
+            SELECT measured_at, received_at, sample_id, boot_id, sequence, session_id,
+                   quality, voltage_v, current_a, active_power_w,
+                   apparent_power_va, non_active_power_var_est, power_factor,
+                   frequency_hz, energy_total_wh
             FROM telemetry_ac WHERE device_id=$1 ORDER BY measured_at DESC LIMIT $2
             """,
             device_id, limit,
