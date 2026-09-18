@@ -16,7 +16,6 @@ class HttpsFallback {
  private:
   uint32_t last_attempt_ms_ = 0;
   uint32_t last_success_ms_ = 0;
-  uint32_t last_telemetry_attempt_ms_ = 0;
   uint32_t retry_ms_ = 1000;
   uint32_t success_count_ = 0;
   uint32_t error_count_ = 0;
