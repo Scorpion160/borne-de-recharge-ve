@@ -4,44 +4,25 @@ import hmac
 import os
 from typing import Any
 
-import paho.mqtt.client as mqtt
+import httpx
 from fastapi import FastAPI, Header, HTTPException
 
-MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
-MQTT_PORT = int(os.getenv("VESCOPE_MQTT_PORT", "1883"))
-TOPIC_PREFIX = os.getenv("VESCOPE_MQTT_TOPIC_PREFIX", "vescope").strip("/")
 INGEST_TOKEN = os.getenv("VESCOPE_INGEST_TOKEN", "")
+HUB_URL = os.getenv("VESCOPE_HUB_URL", "http://hub:8000").rstrip("/")
+INTERNAL_TOKEN = os.getenv("VESCOPE_INTERNAL_INGEST_TOKEN", "")
 
-CHANNEL_QOS = {
-    "status": 1,
-    "telemetry/ac": 0,
-    "session/live": 0,
-    "session/summary": 1,
-    "diagnostics": 0,
-    "alerts": 1,
-    "bms": 0,
-    "charger": 0,
+SUPPORTED_CHANNELS = {
+    "status",
+    "telemetry/ac",
+    "session/live",
+    "session/summary",
+    "diagnostics",
+    "alerts",
+    "bms",
+    "charger",
 }
 
-app = FastAPI(title="VE-SCOPE HTTPS Ingest", version="0.1.0")
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="vescope_https_ingest")
-connected = False
-
-
-def on_connect(client_, userdata, flags, reason_code, properties) -> None:
-    global connected
-    connected = not getattr(reason_code, "is_failure", False)
-
-
-def on_disconnect(client_, userdata, disconnect_flags, reason_code, properties) -> None:
-    global connected
-    connected = False
-
-
-client.on_connect = on_connect
-client.on_disconnect = on_disconnect
-client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
-client.loop_start()
+app = FastAPI(title="VE-SCOPE HTTPS Ingest", version="0.2.0")
 
 
 def require_token(authorization: str | None) -> None:
@@ -56,10 +37,24 @@ def require_token(authorization: str | None) -> None:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    hub_ok = False
+    database_connected = False
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as client:
+            response = await client.get(f"{HUB_URL}/health")
+            if response.status_code == 200:
+                payload = response.json()
+                hub_ok = bool(payload.get("ok"))
+                database_connected = bool(payload.get("database_connected"))
+    except Exception:
+        pass
+
     return {
-        "ok": True,
+        "ok": hub_ok and database_connected,
         "service": "vescope-ingest",
-        "mqtt_connected": connected,
+        "version": "0.2.0",
+        "hub_reachable": hub_ok,
+        "database_connected": database_connected,
     }
 
 
@@ -72,28 +67,36 @@ async def ingest(
 ) -> dict[str, Any]:
     require_token(authorization)
 
-    if channel not in CHANNEL_QOS:
+    if channel not in SUPPORTED_CHANNELS:
         raise HTTPException(status_code=404, detail="Unsupported channel")
     if payload.get("schema") != 1:
         raise HTTPException(status_code=422, detail="schema must be 1")
     if payload.get("device_id") not in (None, device_id):
         raise HTTPException(status_code=422, detail="device_id mismatch")
-    if not connected:
-        raise HTTPException(status_code=503, detail="Internal MQTT unavailable")
+    if not INTERNAL_TOKEN:
+        raise HTTPException(status_code=503, detail="Internal ingest token not configured")
 
     payload["device_id"] = device_id
-    topic = f"{TOPIC_PREFIX}/{device_id}/{channel}"
-    qos = CHANNEL_QOS[channel]
-    retain = channel == "status"
+    url = f"{HUB_URL}/internal/v1/ingest/{device_id}/{channel}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={"X-VE-SCOPE-Internal-Token": INTERNAL_TOKEN},
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Hub unavailable: {exc}") from exc
 
-    info = client.publish(topic, payload=str_json(payload), qos=qos, retain=retain)
-    if info.rc != mqtt.MQTT_ERR_SUCCESS:
-        raise HTTPException(status_code=503, detail=f"MQTT publish failed rc={info.rc}")
+    if response.status_code < 200 or response.status_code >= 300:
+        detail = response.text[:500]
+        raise HTTPException(status_code=503, detail=f"Hub persistence failed: {detail}")
 
-    return {"ok": True, "transport": "https", "topic": topic}
-
-
-def str_json(payload: dict[str, Any]) -> str:
-    import json
-
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    # Un 2xx public signifie désormais : donnée déjà persistée par le Hub.
+    return {
+        "ok": True,
+        "transport": "https",
+        "persisted": True,
+        "device_id": device_id,
+        "channel": channel,
+    }
