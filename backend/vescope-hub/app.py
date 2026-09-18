@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import time
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -23,16 +24,20 @@ from storage import Database
 MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("VESCOPE_MQTT_PORT", "1883"))
 TOPIC_PREFIX = os.getenv("VESCOPE_MQTT_TOPIC_PREFIX", "vescope").strip("/")
+INTERNAL_INGEST_TOKEN = os.getenv("VESCOPE_INTERNAL_INGEST_TOKEN", "")
 
+# Les canaux portant des données de recharge utilisent QoS 1. Le client Hub
+# conserve aussi sa session MQTT afin que Mosquitto puisse les mettre en file
+# pendant un redémarrage temporaire du Hub.
 CHANNELS = {
     "status": ("status_update", 1),
-    "telemetry/ac": ("telemetry_ac", 0),
-    "session/live": ("session_live", 0),
+    "telemetry/ac": ("telemetry_ac", 1),
+    "session/live": ("session_live", 1),
     "session/summary": ("session_summary", 1),
     "alerts": ("alert", 1),
-    "diagnostics": ("diagnostics", 0),
-    "bms": ("bms", 0),
-    "charger": ("charger", 0),
+    "diagnostics": ("diagnostics", 1),
+    "bms": ("bms", 1),
+    "charger": ("charger", 1),
 }
 
 
@@ -89,6 +94,32 @@ async def ensure_alarm_settings(device_id: str) -> None:
     settings_loaded.add(device_id)
 
 
+async def process_payload(
+    device_id: str,
+    channel: str,
+    payload: dict[str, Any],
+    *,
+    durable: bool = False,
+) -> None:
+    # En chemin HTTPS durable, la réponse 2xx ne sera envoyée qu'après cette
+    # persistance PostgreSQL. L'ESP32 peut donc retirer la trame de sa file
+    # locale uniquement lorsqu'elle est réellement durable côté serveur.
+    await database.save(device_id, channel, payload, durable=durable)
+
+    received_at = now_iso()
+    latest[device_id][channel] = {"received_at": received_at, "payload": payload}
+    event_name = CHANNELS[channel][0]
+    await broadcast(
+        device_id,
+        {"event": event_name, "device_id": device_id, "received_at": received_at, "data": payload},
+    )
+
+    if channel == "telemetry/ac":
+        await ensure_alarm_settings(device_id)
+        for alert in alarm_engine.evaluate_telemetry(device_id, payload):
+            await emit_alert(device_id, alert)
+
+
 class MqttBridge:
     def __init__(self) -> None:
         self.connected = False
@@ -97,6 +128,7 @@ class MqttBridge:
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
             client_id="vescope_hub",
+            clean_session=False,
             protocol=mqtt.MQTTv311,
         )
         self.client.on_connect = self.on_connect
@@ -149,23 +181,9 @@ class MqttBridge:
         if channel == "telemetry/ac":
             self.last_telemetry_monotonic[device_id] = time.monotonic()
 
-        asyncio.run_coroutine_threadsafe(self.handle(device_id, channel, payload), self.loop)
-
-    async def handle(self, device_id: str, channel: str, payload: dict[str, Any]) -> None:
-        received_at = now_iso()
-        latest[device_id][channel] = {"received_at": received_at, "payload": payload}
-        await database.save(device_id, channel, payload)
-
-        event_name = CHANNELS[channel][0]
-        await broadcast(
-            device_id,
-            {"event": event_name, "device_id": device_id, "received_at": received_at, "data": payload},
+        asyncio.run_coroutine_threadsafe(
+            process_payload(device_id, channel, payload, durable=False), self.loop
         )
-
-        if channel == "telemetry/ac":
-            await ensure_alarm_settings(device_id)
-            for alert in alarm_engine.evaluate_telemetry(device_id, payload):
-                await emit_alert(device_id, alert)
 
 
 bridge = MqttBridge()
@@ -206,14 +224,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VE-SCOPE Hub",
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
     default_response_class=Utf8JsonResponse,
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "PUT", "OPTIONS"],
+    allow_methods=["GET", "PUT", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -223,13 +241,45 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
         "database_connected": database.available,
         "database_last_error": database.last_error,
         "timestamp": now_iso(),
     }
+
+
+@app.post("/internal/v1/ingest/{device_id}/{channel:path}")
+async def internal_ingest(
+    device_id: str,
+    channel: str,
+    payload: dict[str, Any],
+    x_vescope_internal_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if not INTERNAL_INGEST_TOKEN:
+        raise HTTPException(status_code=503, detail="Internal ingest token not configured")
+    if not x_vescope_internal_token or not hmac.compare_digest(
+        x_vescope_internal_token, INTERNAL_INGEST_TOKEN
+    ):
+        raise HTTPException(status_code=403, detail="Invalid internal ingest token")
+    if channel not in CHANNELS:
+        raise HTTPException(status_code=404, detail="Unsupported channel")
+    if payload.get("schema") != 1:
+        raise HTTPException(status_code=422, detail="schema must be 1")
+    if payload.get("device_id") not in (None, device_id):
+        raise HTTPException(status_code=422, detail="device_id mismatch")
+
+    payload["device_id"] = device_id
+    try:
+        await process_payload(device_id, channel, payload, durable=True)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    bridge.last_message_at = now_iso()
+    if channel == "telemetry/ac":
+        bridge.last_telemetry_monotonic[device_id] = time.monotonic()
+    return {"ok": True, "persisted": True, "device_id": device_id, "channel": channel}
 
 
 @app.get("/api/v1/devices")
