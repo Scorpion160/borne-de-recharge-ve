@@ -101,7 +101,6 @@ void HttpsFallback::begin() {
   retry_ms_ = 0;
   last_attempt_ms_ = 0;
   last_success_ms_ = 0;
-  last_telemetry_attempt_ms_ = 0;
   last_http_code_ = 0;
   success_count_ = 0;
   error_count_ = 0;
@@ -119,18 +118,6 @@ bool HttpsFallback::publish(const char* device_id, const char* channel, const St
   if (strlen(VESCOPE_MQTT_ROOT_CA) == 0) return false;
 
   const uint32_t now = millis();
-
-  // En mode HTTPS, la mesure locale/BLE reste a 1 Hz mais la telemetrie cloud
-  // est limitee a 1 envoi toutes les 5 s pour eviter de multiplier les
-  // handshakes TLS sur les reseaux universitaires faibles ou instables.
-  if (strcmp(channel, "telemetry/ac") == 0) {
-    if (last_telemetry_attempt_ms_ != 0 &&
-        now - last_telemetry_attempt_ms_ < HTTPS_TELEMETRY_PERIOD_MS) {
-      return false;
-    }
-    last_telemetry_attempt_ms_ = now;
-  }
-
   if (retry_ms_ > 0 && last_attempt_ms_ != 0 && now - last_attempt_ms_ < retry_ms_) return false;
   last_attempt_ms_ = now;
 
