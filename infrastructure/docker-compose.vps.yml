@@ -38,6 +38,7 @@ services:
       VESCOPE_MQTT_PORT: "1883"
       VESCOPE_MQTT_TOPIC_PREFIX: vescope
       VESCOPE_DATABASE_URL: postgresql://vescope:${VESCOPE_DB_PASSWORD}@postgres:5432/vescope
+      VESCOPE_INTERNAL_INGEST_TOKEN: ${VESCOPE_INGEST_TOKEN}
 
   ingest:
     build:
@@ -45,12 +46,12 @@ services:
     container_name: vescope_ingest
     restart: unless-stopped
     depends_on:
-      - mqtt
+      hub:
+        condition: service_started
     environment:
-      VESCOPE_MQTT_HOST: mqtt
-      VESCOPE_MQTT_PORT: "1883"
-      VESCOPE_MQTT_TOPIC_PREFIX: vescope
       VESCOPE_INGEST_TOKEN: ${VESCOPE_INGEST_TOKEN}
+      VESCOPE_INTERNAL_INGEST_TOKEN: ${VESCOPE_INGEST_TOKEN}
+      VESCOPE_HUB_URL: http://hub:8000
     ports:
       - "127.0.0.1:${VESCOPE_INGEST_PORT:-8011}:8000"
 
