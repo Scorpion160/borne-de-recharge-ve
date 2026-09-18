@@ -31,7 +31,7 @@ class AlarmEngine:
             low_power_factor=float(os.getenv("VESCOPE_LOW_POWER_FACTOR", "0.90")),
             low_frequency_hz=float(os.getenv("VESCOPE_LOW_FREQUENCY_HZ", "49.0")),
             high_frequency_hz=float(os.getenv("VESCOPE_HIGH_FREQUENCY_HZ", "51.0")),
-            stale_after_s=float(os.getenv("VESCOPE_STALE_AFTER_S", "5")),
+            stale_after_s=float(os.getenv("VESCOPE_STALE_AFTER_S", "20")),
         )
         self._settings: dict[str, AlarmSettings] = {}
         self._active: dict[tuple[str, str], bool] = {}
