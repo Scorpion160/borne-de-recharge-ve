@@ -30,6 +30,11 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
     stream, writer = _csv_buffer()
     writer.writerow([
         "timestamp_utc",
+        "received_at_utc",
+        "sample_id",
+        "boot_id",
+        "sequence",
+        "session_id",
         "voltage_v",
         "current_a",
         "active_power_w",
@@ -43,7 +48,9 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
     if bucket is None:
         rows = await database.pool.fetch(
             """
-            SELECT measured_at AS timestamp_utc, voltage_v, current_a, active_power_w,
+            SELECT measured_at AS timestamp_utc, received_at AS received_at_utc,
+                   sample_id, boot_id, sequence, session_id,
+                   voltage_v, current_a, active_power_w,
                    power_factor, frequency_hz, energy_total_wh
             FROM telemetry_ac
             WHERE device_id=$1
@@ -56,6 +63,11 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
         for row in rows:
             writer.writerow([
                 row["timestamp_utc"].isoformat(),
+                row["received_at_utc"].isoformat(),
+                row["sample_id"] or "",
+                row["boot_id"] if row["boot_id"] is not None else "",
+                row["sequence"] if row["sequence"] is not None else "",
+                row["session_id"] or "",
                 row["voltage_v"],
                 row["current_a"],
                 row["active_power_w"],
@@ -70,6 +82,7 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
             """
             SELECT
                 date_bin($3::interval, measured_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS timestamp_utc,
+                MAX(received_at) AS received_at_utc,
                 AVG(voltage_v) AS voltage_v,
                 AVG(current_a) AS current_a,
                 AVG(active_power_w) AS active_power_w,
@@ -90,6 +103,8 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
         for row in rows:
             writer.writerow([
                 row["timestamp_utc"].isoformat(),
+                row["received_at_utc"].isoformat() if row["received_at_utc"] else "",
+                "", "", "", "",
                 row["voltage_v"],
                 row["current_a"],
                 row["active_power_w"],
