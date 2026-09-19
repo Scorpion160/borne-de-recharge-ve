@@ -25,6 +25,7 @@ import SessionsPage from './SessionsPage';
 import SettingsPage from './SettingsPage';
 import {
   getFreshHubSession,
+  getFreshHubTelemetry,
   getHubAlerts,
   getHubStationState,
   isHubConnected,
@@ -36,8 +37,7 @@ import {
   fetchStoredSessions,
   type StoredSession,
 } from './hubApi';
-import { alerts as simulationAlerts, evolveTelemetry, initialSession, initialTelemetry } from './mock';
-import type { AlertItem, LiveSession, StationState } from './types';
+import type { AcTelemetry, AlertItem, LiveSession, StationState } from './types';
 
 type Page = 'dashboard' | 'measurements' | 'history' | 'data' | 'sessions' | 'alerts' | 'diagnostics' | 'settings';
 
@@ -61,6 +61,8 @@ const pageTitles: Record<Page, string> = {
   diagnostics: 'Diagnostic',
   settings: 'Paramètres',
 };
+
+const LIVE_MAX_AGE_MS = 25_000;
 
 function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('fr-FR', {
@@ -96,51 +98,49 @@ function mergeEvents(...groups: AlertItem[][]): AlertItem[] {
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
-  const [telemetry, setTelemetry] = useState(initialTelemetry);
-  const [session, setSession] = useState<LiveSession>(initialSession);
+  const [telemetry, setTelemetry] = useState<AcTelemetry | null>(null);
+  const [session, setSession] = useState<LiveSession | null>(null);
   const [storedSessions, setStoredSessions] = useState<StoredSession[]>([]);
   const [hubOnline, setHubOnline] = useState(false);
   const [hubLive, setHubLive] = useState(false);
   const [databaseOnline, setDatabaseOnline] = useState(false);
-  const [stationState, setStationState] = useState<StationState>('CHARGING');
-  const [eventItems, setEventItems] = useState<AlertItem[]>(simulationAlerts);
-  const [powerHistory, setPowerHistory] = useState<number[]>(() =>
-    Array.from({ length: 48 }, (_, index) => 2140 + Math.sin(index / 5) * 45),
-  );
+  const [stationState, setStationState] = useState<StationState>('OFFLINE');
+  const [eventItems, setEventItems] = useState<AlertItem[]>([]);
+  const [powerHistory, setPowerHistory] = useState<number[]>([]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const connected = isHubConnected();
-      const live = isHubDataLive();
-      const hubSession = getFreshHubSession();
+      const live = isHubDataLive(LIVE_MAX_AGE_MS);
+      const hubTelemetry = getFreshHubTelemetry(LIVE_MAX_AGE_MS);
+      const hubSession = getFreshHubSession(LIVE_MAX_AGE_MS);
+      const state = connected ? getHubStationState() : 'OFFLINE';
 
       setHubOnline(connected);
       setHubLive(live);
-      setStationState(live ? getHubStationState() : connected ? 'OFFLINE' : 'CHARGING');
+      setStationState(state);
 
-      if (live) {
-        setEventItems((current) => mergeEvents(getHubAlerts(), current));
-      } else if (!connected) {
-        setEventItems(simulationAlerts);
+      if (hubTelemetry) {
+        setTelemetry((previous) => {
+          const isNewSample = !previous
+            || previous.timestamp !== hubTelemetry.timestamp
+            || previous.sequence !== hubTelemetry.sequence;
+          if (isNewSample) {
+            setPowerHistory((values) => [...values.slice(-59), hubTelemetry.active_power_w]);
+          }
+          return hubTelemetry;
+        });
       }
 
-      setTelemetry((previous) => {
-        const next = evolveTelemetry(previous);
-        setPowerHistory((values) => [...values.slice(-59), next.active_power_w]);
+      if (state === 'CHARGING' || state === 'CHARGING_LIMITED' || state === 'SESSION_STARTING' || state === 'FINISHING') {
+        if (hubSession) setSession(hubSession);
+      } else {
+        setSession(null);
+      }
 
-        if (hubSession) {
-          setSession(hubSession);
-        } else if (!connected) {
-          setSession((current) => ({
-            ...current,
-            duration_s: current.duration_s + 1,
-            energy_wh: current.energy_wh + next.active_power_w / 3600,
-            max_power_w: Math.max(current.max_power_w, next.active_power_w),
-            max_current_a: Math.max(current.max_current_a, next.current_a),
-          }));
-        }
-        return next;
-      });
+      if (connected) {
+        setEventItems((current) => mergeEvents(getHubAlerts(), current));
+      }
     }, 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -148,10 +148,6 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     const refreshHistory = async () => {
-      if (!isHubConnected()) {
-        if (mounted) setDatabaseOnline(false);
-        return;
-      }
       const [health, sessions, events] = await Promise.all([
         fetchHubHealth(), fetchStoredSessions(100), fetchStoredEvents(200),
       ]);
@@ -188,6 +184,8 @@ export default function App() {
     );
   })();
 
+  const sourceLabel = hubLive ? 'TEMPS RÉEL' : telemetry ? 'DERNIÈRE MESURE RÉELLE' : 'EN ATTENTE';
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -217,7 +215,7 @@ export default function App() {
           <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
             <Settings size={18} /> <span>Paramètres</span>
           </button>
-          <div className="mode-pill"><span /> {hubLive ? 'SOURCE HUB' : 'MODE SIMULATION'}</div>
+          <div className="mode-pill"><span /> {hubOnline ? 'SOURCE BORNE RÉELLE' : 'HUB HORS LIGNE'}</div>
         </div>
       </aside>
 
@@ -228,7 +226,7 @@ export default function App() {
             <h1>{pageTitles[page]}</h1>
           </div>
           <div className="topbar__right">
-            <div className="source-chip"><Cable size={16} /> borne-01 · {hubLive ? 'HUB' : 'SIM'}</div>
+            <div className="source-chip"><Cable size={16} /> borne-01 · {sourceLabel}</div>
             <div className={`status-pill status-pill--${stationState.toLowerCase()}`}><span /> {stationStateLabel(stationState)}</div>
           </div>
         </header>
@@ -236,12 +234,12 @@ export default function App() {
         <div className="content-area">{content}</div>
 
         <footer className="footer-status">
-          <div><Wifi size={15} /> Hub <strong>{hubOnline ? 'OK' : 'LOCAL'}</strong></div>
-          <div><Radio size={15} /> MQTT <strong>{hubLive ? 'LIVE' : 'SIM'}</strong></div>
-          <div><Gauge size={15} /> PZEM <strong>{hubLive ? 'LIVE' : 'SIMULÉ'}</strong></div>
+          <div><Wifi size={15} /> Hub <strong>{hubOnline ? 'OK' : 'HORS LIGNE'}</strong></div>
+          <div><Radio size={15} /> Télémétrie <strong>{hubLive ? 'LIVE' : telemetry ? 'STALE' : '—'}</strong></div>
+          <div><Gauge size={15} /> PZEM <strong>{telemetry ? 'RÉEL' : '—'}</strong></div>
           <div><Database size={15} /> DB <strong>{databaseOnline ? 'ACTIVE' : '—'}</strong></div>
           <div><Bluetooth size={15} /> BLE <strong>PRÉVU</strong></div>
-          <span>Dernière donnée : {formatTime(telemetry.timestamp)}</span>
+          <span>Dernière donnée réelle : {telemetry ? formatTime(telemetry.timestamp) : '—'}</span>
         </footer>
       </main>
     </div>
