@@ -8,6 +8,8 @@ let latestAlerts: AlertItem[] = [];
 let stationState: StationState = 'OFFLINE';
 let hubConnected = false;
 
+const DEFAULT_LIVE_MAX_AGE_MS = 25_000;
+
 export function setHubConnected(value: boolean): void {
   hubConnected = value;
   if (!value) stationState = 'OFFLINE';
@@ -30,7 +32,7 @@ export function setHubTelemetry(value: AcTelemetry): void {
   latestTelemetryAt = Date.now();
 }
 
-export function getFreshHubTelemetry(maxAgeMs = 3500): AcTelemetry | null {
+export function getFreshHubTelemetry(maxAgeMs = DEFAULT_LIVE_MAX_AGE_MS): AcTelemetry | null {
   if (!hubConnected || !latestTelemetry) return null;
   if (Date.now() - latestTelemetryAt > maxAgeMs) return null;
   return latestTelemetry;
@@ -41,7 +43,7 @@ export function setHubSession(value: LiveSession): void {
   latestSessionAt = Date.now();
 }
 
-export function getFreshHubSession(maxAgeMs = 3500): LiveSession | null {
+export function getFreshHubSession(maxAgeMs = DEFAULT_LIVE_MAX_AGE_MS): LiveSession | null {
   if (!hubConnected || !latestSession) return null;
   if (Date.now() - latestSessionAt > maxAgeMs) return null;
   return latestSession;
@@ -55,6 +57,6 @@ export function getHubAlerts(): AlertItem[] {
   return latestAlerts;
 }
 
-export function isHubDataLive(maxAgeMs = 3500): boolean {
+export function isHubDataLive(maxAgeMs = DEFAULT_LIVE_MAX_AGE_MS): boolean {
   return getFreshHubTelemetry(maxAgeMs) !== null;
 }
