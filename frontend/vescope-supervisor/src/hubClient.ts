@@ -43,9 +43,6 @@ function normalizeAlert(data: Record<string, unknown>): AlertItem {
 }
 
 export function startHubClient(): () => void {
-  const mode = ((import.meta.env.VITE_VESCOPE_DATA_SOURCE as string | undefined) ?? 'auto').toLowerCase();
-  if (mode === 'simulation') return () => undefined;
-
   let socket: WebSocket | null = null;
   let stopped = false;
   let retryMs = 1000;
