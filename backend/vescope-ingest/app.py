@@ -22,7 +22,7 @@ SUPPORTED_CHANNELS = {
     "charger",
 }
 
-app = FastAPI(title="VE-SCOPE HTTPS Ingest", version="0.2.0")
+app = FastAPI(title="VE-SCOPE HTTPS Ingest", version="0.2.1")
 
 
 def require_token(authorization: str | None) -> None:
@@ -52,7 +52,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": hub_ok and database_connected,
         "service": "vescope-ingest",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "hub_reachable": hub_ok,
         "database_connected": database_connected,
     }
@@ -83,7 +83,9 @@ async def ingest(
             response = await client.post(
                 url,
                 json=payload,
-                headers={"X-VE-SCOPE-Internal-Token": INTERNAL_TOKEN},
+                # FastAPI convertit x_vescope_internal_token en en-tête
+                # HTTP `X-VESCOPE-Internal-Token` (underscores -> tirets).
+                headers={"X-VESCOPE-Internal-Token": INTERNAL_TOKEN},
             )
     except httpx.RequestError as exc:
         raise HTTPException(status_code=503, detail=f"Hub unavailable: {exc}") from exc
