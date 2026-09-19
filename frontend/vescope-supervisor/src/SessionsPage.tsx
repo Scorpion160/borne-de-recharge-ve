@@ -57,20 +57,22 @@ export default function SessionsPage({
   stored,
   hubLive,
 }: {
-  session: LiveSession;
+  session: LiveSession | null;
   stored: StoredSession[];
   hubLive: boolean;
 }) {
   const [stateFilter, setStateFilter] = useState<'ALL' | StationState>('ALL');
   const [query, setQuery] = useState('');
   const rows = useMemo(() => {
-    const source = stored.length > 0 ? stored : [liveAsStored(session)];
-    return source.filter((item) => {
+    const withLive = session && hubLive
+      ? [liveAsStored(session), ...stored.filter((item) => item.session_id !== session.session_id)]
+      : stored;
+    return withLive.filter((item) => {
       const stateMatches = stateFilter === 'ALL' || item.state === stateFilter;
       const queryMatches = item.session_id.toLowerCase().includes(query.trim().toLowerCase());
       return stateMatches && queryMatches;
     });
-  }, [query, session, stateFilter, stored]);
+  }, [hubLive, query, session, stateFilter, stored]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = rows.find((item) => item.session_id === selectedId) ?? rows[0] ?? null;
@@ -79,8 +81,8 @@ export default function SessionsPage({
     <div className="sessions-page">
       <section className="panel sessions-toolbar">
         <div className="panel__title-row">
-          <div><span className="eyebrow">POSTGRESQL · HISTORIQUE</span><h2>Sessions de recharge</h2></div>
-          <span className="quality-badge">{hubLive ? 'HUB' : 'LOCAL'}</span>
+          <div><span className="eyebrow">POSTGRESQL · DONNÉES RÉELLES</span><h2>Sessions de recharge</h2></div>
+          <span className="quality-badge">{hubLive ? 'HUB LIVE' : 'HISTORIQUE'}</span>
         </div>
         <div className="filter-bar">
           <label className="search-field">
@@ -116,7 +118,7 @@ export default function SessionsPage({
                 <span className={item.state === 'CHARGING' ? 'status-text' : undefined}>{stateLabel(item.state)}</span>
               </button>
             ))}
-            {rows.length === 0 && <p className="note">Aucune session ne correspond aux filtres.</p>}
+            {rows.length === 0 && <p className="note">Aucune session réelle disponible pour ces filtres.</p>}
           </div>
         </div>
 
@@ -140,7 +142,7 @@ export default function SessionsPage({
               </div>
               {selected.end_reason && <p className="note">Cause de fin : {selected.end_reason}</p>}
             </>
-          ) : <p className="note">Sélectionnez une session pour afficher son détail.</p>}
+          ) : <p className="note">Aucune session réelle à afficher.</p>}
         </aside>
       </section>
     </div>
