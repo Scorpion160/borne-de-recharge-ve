@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../state/vescope_controller.dart';
+import '../pages/alerts_page.dart';
 import '../pages/dashboard_page.dart';
+import '../pages/data_page.dart';
 import '../pages/historical_page.dart';
 import '../pages/measurements_page.dart';
+import '../pages/sessions_page.dart';
 
 class VescopeShell extends StatefulWidget {
   const VescopeShell({
@@ -114,6 +117,12 @@ class _VescopeShellState extends State<VescopeShell> {
         return MeasurementsPage(controller: widget.controller);
       case 2:
         return const HistoricalPage();
+      case 3:
+        return DataPage(controller: widget.controller);
+      case 4:
+        return SessionsPage(controller: widget.controller);
+      case 5:
+        return const AlertsPage();
       default:
         return _MigrationPage(title: _items[_index].label, icon: _items[_index].icon);
     }
@@ -187,11 +196,11 @@ class _BrandMark extends StatelessWidget {
   const _BrandMark();
   @override
   Widget build(BuildContext context) => Container(
-    width: 48,
-    height: 48,
-    decoration: BoxDecoration(color: const Color(0xFF173C63), borderRadius: BorderRadius.circular(13)),
-    child: const Icon(Icons.bolt_outlined, color: Color(0xFF8EC8FF)),
-  );
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(color: const Color(0xFF173C63), borderRadius: BorderRadius.circular(13)),
+        child: const Icon(Icons.bolt_outlined, color: Color(0xFF8EC8FF)),
+      );
 }
 
 class _MigrationPage extends StatelessWidget {
@@ -201,27 +210,27 @@ class _MigrationPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Container(
-        width: 520,
-        padding: const EdgeInsets.all(28),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          border: Border.all(color: Theme.of(context).dividerColor),
-          borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            width: 520,
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 38, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 16),
+                Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                const Text('Migration Flutter en cours. Cette page sera raccordée au même VE-SCOPE Hub que la version Web de référence.', textAlign: TextAlign.center),
+              ],
+            ),
+          ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 38, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 16),
-            Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            const Text('Migration Flutter en cours. Cette page sera raccordée au même VE-SCOPE Hub que la version Web de référence.', textAlign: TextAlign.center),
-          ],
-        ),
-      ),
-    ),
-  );
+      );
 }
