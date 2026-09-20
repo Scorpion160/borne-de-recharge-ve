@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/vescope_models.dart';
 import '../../state/vescope_controller.dart';
 import '../pages/alerts_page.dart';
 import '../pages/dashboard_page.dart';
@@ -53,18 +54,17 @@ class _VescopeShellState extends State<VescopeShell> {
               backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               appBar: _TopBar(
                 title: _items[_index].label,
-                stateLabel: widget.controller.stationState.label,
+                state: widget.controller.stationState,
                 isDark: widget.themeMode != ThemeMode.light,
                 onToggleTheme: widget.onToggleTheme,
+                compact: mobile,
               ),
               body: _page(),
               bottomNavigationBar: mobile
-                  ? NavigationBar(
+                  ? _MobileNav(
+                      items: _items,
                       selectedIndex: _index,
-                      onDestinationSelected: (value) => setState(() => _index = value),
-                      destinations: _items
-                          .map((item) => NavigationDestination(icon: Icon(item.icon), label: item.label))
-                          .toList(),
+                      onSelected: (value) => setState(() => _index = value),
                     )
                   : null,
             );
@@ -135,64 +135,140 @@ class _VescopeShellState extends State<VescopeShell> {
   }
 }
 
-class _TopBar extends StatelessWidget implements PreferredSizeWidget {
-  const _TopBar({
-    required this.title,
-    required this.stateLabel,
-    required this.isDark,
-    required this.onToggleTheme,
+class _MobileNav extends StatelessWidget {
+  const _MobileNav({
+    required this.items,
+    required this.selectedIndex,
+    required this.onSelected,
   });
 
-  final String title;
-  final String stateLabel;
-  final bool isDark;
-  final VoidCallback onToggleTheme;
-
-  @override
-  Size get preferredSize => const Size.fromHeight(88);
+  final List<({String label, IconData icon})> items;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
 
   @override
   Widget build(BuildContext context) {
+    final divider = Theme.of(context).dividerColor;
+    return Material(
+      color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .98),
+      child: SafeArea(
+        top: false,
+        child: Container(
+          height: 64,
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: divider))),
+          child: Row(
+            children: List.generate(items.length, (index) {
+              final item = items[index];
+              final selected = index == selectedIndex;
+              return Expanded(
+                child: Tooltip(
+                  message: item.label,
+                  child: InkWell(
+                    onTap: () => onSelected(index),
+                    child: Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: selected ? const Color(0xFF173C63) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(11),
+                          border: selected
+                              ? const Border(bottom: BorderSide(color: Color(0xFF58B0FF), width: 2))
+                              : null,
+                        ),
+                        child: Icon(
+                          item.icon,
+                          size: 21,
+                          color: selected ? const Color(0xFFBFDFFF) : const Color(0xFF8CA0B6),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget implements PreferredSizeWidget {
+  const _TopBar({
+    required this.title,
+    required this.state,
+    required this.isDark,
+    required this.onToggleTheme,
+    required this.compact,
+  });
+
+  final String title;
+  final StationState state;
+  final bool isDark;
+  final VoidCallback onToggleTheme;
+  final bool compact;
+
+  @override
+  Size get preferredSize => Size.fromHeight(compact ? 72 : 88);
+
+  @override
+  Widget build(BuildContext context) {
+    final stateColor = switch (state) {
+      StationState.offline || StationState.fault => const Color(0xFFFF7070),
+      StationState.interrupted || StationState.maintenance => const Color(0xFFF0B24D),
+      StationState.sessionStarting ||
+      StationState.charging ||
+      StationState.chargingLimited ||
+      StationState.finishing => const Color(0xFF58B0FF),
+      StationState.idle || StationState.complete => const Color(0xFF55D68A),
+    };
+
     return AppBar(
       automaticallyImplyLeading: false,
-      toolbarHeight: 88,
+      toolbarHeight: compact ? 72 : 88,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .96),
       surfaceTintColor: Colors.transparent,
-      titleSpacing: 24,
+      titleSpacing: compact ? 16 : 24,
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (MediaQuery.sizeOf(context).width >= 760)
+          if (!compact)
             const Text('BORNE DE RECHARGE VE', style: TextStyle(color: Color(0xFF70859D), fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.7)),
-          const SizedBox(height: 3),
-          Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+          if (!compact) const SizedBox(height: 3),
+          Text(title, style: TextStyle(fontSize: compact ? 20 : 24, fontWeight: FontWeight.w700)),
         ],
       ),
       actions: [
         Container(
-          margin: const EdgeInsets.symmetric(vertical: 22),
-          padding: const EdgeInsets.symmetric(horizontal: 13),
+          margin: EdgeInsets.symmetric(vertical: compact ? 17 : 22),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 13),
           decoration: BoxDecoration(
-            color: const Color(0xFF102A20),
-            border: Border.all(color: const Color(0xFF22573B)),
+            color: stateColor.withValues(alpha: .12),
+            border: Border.all(color: stateColor.withValues(alpha: .38)),
             borderRadius: BorderRadius.circular(999),
           ),
           alignment: Alignment.center,
           child: Row(
             children: [
-              Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFF55D68A), shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Text(stateLabel, style: const TextStyle(color: Color(0xFF89DDB0), fontWeight: FontWeight.w700, fontSize: 12)),
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: stateColor, shape: BoxShape.circle)),
+              const SizedBox(width: 7),
+              Text(
+                state.label,
+                style: TextStyle(color: stateColor, fontWeight: FontWeight.w700, fontSize: compact ? 10 : 12),
+              ),
             ],
           ),
         ),
         IconButton(
           onPressed: onToggleTheme,
           tooltip: isDark ? 'Mode clair' : 'Mode sombre',
+          visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
           icon: Icon(isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: compact ? 4 : 12),
       ],
     );
   }
