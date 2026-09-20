@@ -1,13 +1,15 @@
 .history-page,
 .sessions-page,
-.alerts-page {
+.alerts-page,
+.measurements-page {
   display: grid;
   gap: 16px;
 }
 
 .history-page .panel,
 .sessions-page .panel,
-.alerts-page .panel {
+.alerts-page .panel,
+.measurements-page .panel {
   margin-top: 0;
 }
 
@@ -106,6 +108,25 @@
 .history-time-axis { display: flex; justify-content: space-between; margin-top: 6px; color: #657a91; font-size: 10px; }
 .history-meta { display: flex; justify-content: space-between; gap: 12px; color: #63788f; font-size: 10px; border-top: 1px solid #17283a; padding-top: 12px; }
 .history-empty { min-height: 260px; display: grid; place-items: center; color: #6d8298; font-size: 12px; }
+.history-method-note p { margin: 10px 0 0; color: #7e93aa; font-size: 11px; line-height: 1.65; }
+
+.measurement-provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.measurement-provenance-card { min-width: 0; }
+.measurement-provenance-card--wide { grid-column: 1 / -1; }
+.measurement-provenance-card__head { display: flex; gap: 10px; align-items: flex-start; }
+.measurement-provenance-card__head svg { color: #67b4f8; margin-top: 2px; }
+.measurement-provenance-card__head h3 { margin: 3px 0 0; font-size: 15px; }
+.measurement-code { max-width: 58%; overflow-wrap: anywhere; text-align: right; }
+.measurement-trust-note { margin-top: 14px; }
+.quality-badge--good { color: #78dca3; background: #10251d; border-color: #1e4b34; }
+.quality-badge--stale,
+.quality-badge--estimated { color: #f0c879; background: #302713; border-color: #685326; }
+.quality-badge--invalid,
+.quality-badge--unavailable { color: #ffaaa6; background: #32191d; border-color: #693239; }
 
 .filter-bar {
   display: flex;
@@ -170,9 +191,9 @@
 .session-table--interactive .session-table__row.selected {
   box-shadow: inset 3px 0 0 #57a9ff;
 }
+.session-detail-state-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .session-detail-state {
   display: inline-flex;
-  margin-top: 16px;
   padding: 7px 10px;
   border-radius: 999px;
   background: #10251d;
@@ -180,6 +201,18 @@
   font-size: 10px;
   font-weight: 700;
 }
+.session-recovered-badge {
+  display: inline-flex;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #302713;
+  border: 1px solid #685326;
+  color: #f0c879;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+.session-recovery-note { border-left-color: #c29543; background: #211d14; color: #c5ae7b; }
 .session-detail-grid {
   margin-top: 14px;
   display: grid;
@@ -247,6 +280,12 @@
 :root[data-theme='light'] .event__meta span { background: #eef4f9; color: #62778d; }
 :root[data-theme='light'] .status-pill--offline,
 :root[data-theme='light'] .status-pill--fault { background: #fff0f0; border-color: #efb6b6; color: #a43b3b; }
+:root[data-theme='light'] .session-recovery-note { background: #fff9e9; color: #806625; }
+:root[data-theme='light'] .session-recovered-badge { background: #fff4cf; border-color: #e3c368; color: #80621b; }
+:root[data-theme='light'] .quality-badge--stale,
+:root[data-theme='light'] .quality-badge--estimated { background: #fff7df; border-color: #e8ce83; color: #7d631e; }
+:root[data-theme='light'] .quality-badge--invalid,
+:root[data-theme='light'] .quality-badge--unavailable { background: #fff0f0; border-color: #efb6b6; color: #a43b3b; }
 
 @media (max-width: 1050px) {
   .history-kpis,
@@ -256,13 +295,15 @@
 }
 
 @media (max-width: 760px) {
-  .nav-list { grid-template-columns: repeat(6, 1fr); }
   .history-kpis,
   .alarm-summary-grid { grid-template-columns: 1fr 1fr; }
   .history-chart { height: 240px; }
   .history-chart-head { align-items: flex-start; flex-direction: column; }
   .history-current-stat { text-align: left; }
-  .session-detail-grid { grid-template-columns: 1fr; }
+  .session-detail-grid,
+  .measurement-provenance-grid { grid-template-columns: 1fr; }
+  .measurement-provenance-card--wide { grid-column: auto; }
+  .measurement-code { max-width: 62%; }
   .filter-count { width: 100%; margin-left: 0; }
 }
 
