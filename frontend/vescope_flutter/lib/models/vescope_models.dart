@@ -110,6 +110,9 @@ class CoreStatus {
     this.wifi,
     this.ble,
     this.cloudTransport,
+    this.captivePortalEnabled,
+    this.captivePortalAuthenticated,
+    this.durablePending,
   });
 
   factory CoreStatus.fromJson(Map<String, dynamic> json) => CoreStatus(
@@ -119,6 +122,9 @@ class CoreStatus {
     wifi: json['transport_wifi'] as bool?,
     ble: json['transport_ble'] as bool?,
     cloudTransport: json['cloud_transport']?.toString(),
+    captivePortalEnabled: json['captive_portal_enabled'] as bool?,
+    captivePortalAuthenticated: json['captive_portal_authenticated'] as bool?,
+    durablePending: (json['durable_pending'] as num?)?.toInt(),
   );
 
   final StationState state;
@@ -127,6 +133,9 @@ class CoreStatus {
   final bool? wifi;
   final bool? ble;
   final String? cloudTransport;
+  final bool? captivePortalEnabled;
+  final bool? captivePortalAuthenticated;
+  final int? durablePending;
 }
 
 class CoreDiagnostics {
@@ -139,11 +148,23 @@ class CoreDiagnostics {
     this.wifiIp,
     this.mqttConnected,
     this.httpsFallbackOk,
+    this.httpsPublishOk,
+    this.httpsPublishErrors,
+    this.cloudTransport,
+    this.captivePortalEnabled,
+    this.captivePortalAuthenticated,
     this.bleConnected,
     this.pzemOnline,
     this.pzemReadsOk,
     this.pzemErrors,
+    this.pzemConsecutiveErrors,
+    this.pzemLastError,
     this.bootId,
+    this.durableStoreOk,
+    this.durableQueueError,
+    this.durablePendingTelemetry,
+    this.durablePendingBytes,
+    this.durablePendingSummaries,
   });
 
   factory CoreDiagnostics.fromJson(Map<String, dynamic> json) => CoreDiagnostics(
@@ -155,11 +176,23 @@ class CoreDiagnostics {
     wifiIp: json['wifi_ip']?.toString(),
     mqttConnected: json['mqtt_connected'] as bool?,
     httpsFallbackOk: json['https_fallback_ok'] as bool?,
+    httpsPublishOk: (json['https_publish_ok'] as num?)?.toInt(),
+    httpsPublishErrors: (json['https_publish_errors'] as num?)?.toInt(),
+    cloudTransport: json['cloud_transport']?.toString(),
+    captivePortalEnabled: json['captive_portal_enabled'] as bool?,
+    captivePortalAuthenticated: json['captive_portal_authenticated'] as bool?,
     bleConnected: json['ble_connected'] as bool?,
     pzemOnline: json['pzem_online'] as bool?,
     pzemReadsOk: (json['pzem_reads_ok'] as num?)?.toInt(),
     pzemErrors: (json['pzem_errors'] as num?)?.toInt(),
+    pzemConsecutiveErrors: (json['pzem_consecutive_errors'] as num?)?.toInt(),
+    pzemLastError: json['pzem_last_error']?.toString(),
     bootId: (json['boot_id'] as num?)?.toInt(),
+    durableStoreOk: json['durable_store_ok'] as bool?,
+    durableQueueError: json['durable_queue_error'] as bool?,
+    durablePendingTelemetry: (json['durable_pending_telemetry'] as num?)?.toInt(),
+    durablePendingBytes: (json['durable_pending_bytes'] as num?)?.toInt(),
+    durablePendingSummaries: (json['durable_pending_summaries'] as num?)?.toInt(),
   );
 
   final String? firmware;
@@ -170,11 +203,23 @@ class CoreDiagnostics {
   final String? wifiIp;
   final bool? mqttConnected;
   final bool? httpsFallbackOk;
+  final int? httpsPublishOk;
+  final int? httpsPublishErrors;
+  final String? cloudTransport;
+  final bool? captivePortalEnabled;
+  final bool? captivePortalAuthenticated;
   final bool? bleConnected;
   final bool? pzemOnline;
   final int? pzemReadsOk;
   final int? pzemErrors;
+  final int? pzemConsecutiveErrors;
+  final String? pzemLastError;
   final int? bootId;
+  final bool? durableStoreOk;
+  final bool? durableQueueError;
+  final int? durablePendingTelemetry;
+  final int? durablePendingBytes;
+  final int? durablePendingSummaries;
 }
 
 class HubHealth {
