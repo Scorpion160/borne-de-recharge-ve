@@ -129,30 +129,37 @@ class _DataPageState extends State<DataPage> {
           },
         ),
         const SizedBox(height: 20),
-        const _Panel(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: Column(
+        _Panel(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 700;
+              final heading = const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('UTILISATION DES EXPORTS', style: _eyebrowStyle),
+                  SizedBox(height: 8),
+                  Text('Deux niveaux de données', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                ],
+              );
+              const explanation = Text(
+                'L’export opérationnel regroupe les mesures disponibles pour le suivi quotidien. L’export de référence contient uniquement les mesures qui ont été validées pour les analyses scientifiques et le jumeau numérique.',
+                style: TextStyle(color: Color(0xFF8EA4BC), height: 1.5),
+              );
+              if (compact) {
+                return const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('UTILISATION DES EXPORTS', style: _eyebrowStyle),
-                    SizedBox(height: 8),
-                    Text('Deux niveaux de données', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ),
-              SizedBox(width: 24),
-              Expanded(
-                flex: 4,
-                child: Text(
-                  'L’export opérationnel regroupe les mesures disponibles pour le suivi quotidien. L’export de référence contient uniquement les mesures qui ont été validées pour les analyses scientifiques et le jumeau numérique.',
-                  style: TextStyle(color: Color(0xFF8EA4BC), height: 1.5),
-                ),
-              ),
-            ],
+                  children: [heading, SizedBox(height: 16), explanation],
+                );
+              }
+              return const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 2, child: heading),
+                  SizedBox(width: 24),
+                  Expanded(flex: 4, child: explanation),
+                ],
+              );
+            },
           ),
         ),
       ],
@@ -183,20 +190,21 @@ class _Status extends StatelessWidget {
   final bool ok;
 
   @override
-  Widget build(BuildContext context) => Container(
-        constraints: const BoxConstraints(minWidth: 210),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).dividerColor),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Expanded(child: Text(label, style: const TextStyle(color: Color(0xFF8EA4BC)))),
-            const SizedBox(width: 20),
-            Text(value, style: TextStyle(color: ok ? const Color(0xFF55D68A) : const Color(0xFFF0B24D), fontWeight: FontWeight.w700)),
-          ],
+  Widget build(BuildContext context) => SizedBox(
+        width: 245,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).dividerColor),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Expanded(child: Text(label, style: const TextStyle(color: Color(0xFF8EA4BC)))),
+              const SizedBox(width: 12),
+              Text(value, style: TextStyle(color: ok ? const Color(0xFF55D68A) : const Color(0xFFF0B24D), fontWeight: FontWeight.w700)),
+            ],
+          ),
         ),
       );
 }
@@ -262,7 +270,7 @@ class _ExportCard extends StatelessWidget {
               ],
               const SizedBox(height: 18),
             ] else
-              const Spacer(),
+              const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
