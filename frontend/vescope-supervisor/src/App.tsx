@@ -173,7 +173,7 @@ export default function App() {
         fetchStoredSessions(100),
         fetchStoredEvents(200),
         fetchDeviceSettings(),
-        fetchTelemetrySeries('1m'),
+        fetchTelemetrySeries('15m'),
       ]);
       if (!mounted) return;
       setDatabaseOnline(Boolean(health?.database_connected));
