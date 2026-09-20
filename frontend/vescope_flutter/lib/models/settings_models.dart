@@ -8,6 +8,13 @@ class AlarmThresholds {
     required this.staleAfterS,
   });
 
+  final double lowVoltageV;
+  final double highVoltageV;
+  final double lowPowerFactor;
+  final double lowFrequencyHz;
+  final double highFrequencyHz;
+  final double staleAfterS;
+
   factory AlarmThresholds.fromJson(Map<String, dynamic> json) => AlarmThresholds(
         lowVoltageV: (json['low_voltage_v'] as num?)?.toDouble() ?? 207,
         highVoltageV: (json['high_voltage_v'] as num?)?.toDouble() ?? 253,
