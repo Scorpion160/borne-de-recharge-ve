@@ -33,7 +33,7 @@ export default function MeasurementsPage({ telemetry, hubLive }: { telemetry: Ac
     ['Courant efficace', telemetry.current_a.toFixed(3), 'A', source],
     ['Puissance active', telemetry.active_power_w.toFixed(1), 'W', source],
     ['Puissance apparente', telemetry.apparent_power_va.toFixed(1), 'VA', 'Calculée depuis la mesure réelle'],
-    ['Puissance non active', telemetry.non_active_power_var_est.toFixed(1), 'var', 'Estimée depuis S et P'],
+    ['Puissance réactive', telemetry.non_active_power_var_est.toFixed(1), 'var', 'Estimée depuis S et P'],
     ['Facteur de puissance', telemetry.power_factor.toFixed(3), '—', source],
     ['Fréquence', telemetry.frequency_hz.toFixed(3), 'Hz', source],
     ['Énergie totale compteur', (telemetry.energy_total_wh / 1000).toFixed(3), 'kWh', source],
@@ -53,7 +53,7 @@ export default function MeasurementsPage({ telemetry, hubLive }: { telemetry: Ac
             </div>
           ))}
         </div>
-        <p className="note">Horodatage de la mesure : {new Date(telemetry.timestamp).toLocaleString('fr-FR')}. La puissance non active est une estimation dérivée de la puissance apparente S et de la puissance active P.</p>
+        <p className="note">Horodatage de la mesure : {new Date(telemetry.timestamp).toLocaleString('fr-FR')}. La puissance réactive affichée est une estimation dérivée de la puissance apparente S et de la puissance active P.</p>
       </section>
 
       <section className="measurement-provenance-grid">
