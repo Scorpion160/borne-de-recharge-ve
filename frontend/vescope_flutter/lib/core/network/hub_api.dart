@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
+import '../../models/operational_models.dart';
 import '../../models/telemetry_series.dart';
 import '../../models/vescope_models.dart';
 
@@ -49,4 +50,56 @@ class HubApi {
       return null;
     }
   }
+
+  Future<List<StoredSession>> fetchStoredSessions({int limit = 50}) async {
+    try {
+      final response = await http.get(
+        AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/sessions?limit=$limit'),
+        headers: const {'Accept': 'application/json'},
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) return const [];
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = json['items'] as List<dynamic>? ?? const [];
+      return items
+          .whereType<Map<String, dynamic>>()
+          .map(StoredSession.fromJson)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<StoredEvent>> fetchStoredEvents({int limit = 100}) async {
+    try {
+      final response = await http.get(
+        AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/events?limit=$limit'),
+        headers: const {'Accept': 'application/json'},
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) return const [];
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = json['items'] as List<dynamic>? ?? const [];
+      return items
+          .whereType<Map<String, dynamic>>()
+          .map(StoredEvent.fromJson)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Uri telemetryCsvUri(String range) => AppConfig.api(
+        '/api/v1/devices/${AppConfig.deviceId}/exports/telemetry.csv?range=$range',
+      );
+
+  Uri trustedTelemetryCsvUri(String range) => AppConfig.api(
+        '/api/v1/devices/${AppConfig.deviceId}/exports/telemetry-trusted.csv?range=$range',
+      );
+
+  Uri sessionsCsvUri() => AppConfig.api(
+        '/api/v1/devices/${AppConfig.deviceId}/exports/sessions.csv',
+      );
+
+  Uri eventsCsvUri() => AppConfig.api(
+        '/api/v1/devices/${AppConfig.deviceId}/exports/events.csv',
+      );
 }
