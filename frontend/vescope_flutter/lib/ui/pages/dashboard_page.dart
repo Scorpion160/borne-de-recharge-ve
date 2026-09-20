@@ -15,9 +15,10 @@ class DashboardPage extends StatelessWidget {
     final isLive = controller.telemetryLive;
     final rssi = controller.diagnostics?.wifiRssiDbm;
     final weakWifi = rssi != null && rssi <= -85;
+    final compact = MediaQuery.sizeOf(context).width < 600;
 
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(compact ? 16 : 24),
       children: [
         LayoutBuilder(
           builder: (context, constraints) {
@@ -81,7 +82,7 @@ class DashboardPage extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               SizedBox(
-                height: 190,
+                height: compact ? 150 : 190,
                 width: double.infinity,
                 child: controller.powerHistory.length < 2
                     ? const Center(child: Text('En attente de plusieurs mesures réelles pour tracer la courbe.'))
@@ -91,7 +92,8 @@ class DashboardPage extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Mesures reçues récemment'),
+                  const Flexible(child: Text('Mesures reçues récemment')),
+                  const SizedBox(width: 12),
                   Text('${((telemetry?.activePowerW ?? 0) / 1000).toStringAsFixed(2)} kW', style: const TextStyle(fontWeight: FontWeight.w700)),
                 ],
               ),
@@ -201,7 +203,7 @@ class _MetricCard extends StatelessWidget {
         const Spacer(),
         FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(value, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700))),
         const SizedBox(height: 8),
-        Text(subtitle, style: const TextStyle(color: Color(0xFF60758D), fontSize: 12)),
+        Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF60758D), fontSize: 12)),
       ],
     ),
   );
@@ -239,16 +241,34 @@ class _QuickGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 760 ? 4 : 2;
-        return GridView.count(
-          crossAxisCount: columns,
+        return GridView.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisExtent: columns == 4 ? 104 : 96,
+          ),
+          itemCount: items.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          childAspectRatio: columns == 4 ? 2.8 : 2.1,
-          children: items.map((item) => Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(border: Border.all(color: Theme.of(context).dividerColor), color: Theme.of(context).cardColor),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [Text(item.$1, style: const TextStyle(color: Color(0xFF6F8399), fontSize: 12)), const SizedBox(height: 8), Text(item.$2, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700))]),
-          )).toList(),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(border: Border.all(color: Theme.of(context).dividerColor), color: Theme.of(context).cardColor),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(item.$1, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF6F8399), fontSize: 12)),
+                  const SizedBox(height: 6),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(item.$2, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
