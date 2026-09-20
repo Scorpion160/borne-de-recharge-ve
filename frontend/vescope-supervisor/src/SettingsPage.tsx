@@ -12,7 +12,7 @@ const DEFAULTS: AlarmThresholds = {
   low_power_factor: 0.9,
   low_frequency_hz: 49,
   high_frequency_hz: 51,
-  stale_after_s: 5,
+  stale_after_s: 180,
 };
 
 function NumberField({
@@ -117,7 +117,7 @@ export default function SettingsPage({ hubOnline }: { hubOnline: boolean }) {
 
   const reset = () => {
     setThresholds(DEFAULTS);
-    setMessage('Valeurs par défaut chargées. Cliquez sur Enregistrer pour les appliquer.');
+    setMessage('Profil terrain chargé. Cliquez sur Enregistrer pour l’appliquer.');
     setError('');
   };
 
@@ -139,7 +139,7 @@ export default function SettingsPage({ hubOnline }: { hubOnline: boolean }) {
           <span className={`settings-status ${hubOnline ? 'settings-status--ok' : 'settings-status--warn'}`}>
             <span /> Hub {hubOnline ? 'connecté' : 'indisponible'}
           </span>
-          <span className="settings-status"><Database size={14} /> {persisted ? 'Configuration persistée' : 'Valeurs par défaut'}</span>
+          <span className="settings-status"><Database size={14} /> {persisted ? 'Configuration persistée' : 'Valeurs locales de secours'}</span>
         </div>
       </section>
 
@@ -170,7 +170,7 @@ export default function SettingsPage({ hubOnline }: { hubOnline: boolean }) {
         <article className="panel settings-card">
           <div className="settings-card__head"><TimerReset size={19} /><div><h3>Disponibilité des données</h3><p>Délai avant de considérer la télémétrie comme perdue.</p></div></div>
           <div className="settings-fields settings-fields--single">
-            <NumberField label="Perte de télémétrie" value={thresholds.stale_after_s} unit="s" min={2} max={300} step={1} onChange={(value) => update('stale_after_s', value)} description="Déclenche AC_TELEMETRY_STALE lorsqu’aucune nouvelle donnée n’arrive dans ce délai." />
+            <NumberField label="Perte de télémétrie" value={thresholds.stale_after_s} unit="s" min={2} max={300} step={1} onChange={(value) => update('stale_after_s', value)} description="Déclenche AC_TELEMETRY_STALE lorsqu’aucune nouvelle donnée n’arrive dans ce délai. Le profil terrain actuel utilise 180 s tant que 0.2.12 n’est pas validé." />
           </div>
         </article>
       </section>
@@ -183,7 +183,7 @@ export default function SettingsPage({ hubOnline }: { hubOnline: boolean }) {
           {error && <p className="settings-message settings-message--error">{error}</p>}
         </div>
         <div className="settings-actions__buttons">
-          <button type="button" className="button button--secondary" onClick={reset} disabled={saving || loading}>Valeurs par défaut</button>
+          <button type="button" className="button button--secondary" onClick={reset} disabled={saving || loading}>Profil terrain</button>
           <button type="button" className="button button--primary" onClick={save} disabled={!dirty || saving || loading || !hubOnline}>
             <Save size={16} /> {saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
