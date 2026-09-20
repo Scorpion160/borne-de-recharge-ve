@@ -24,7 +24,9 @@ import MeasurementsPage from './MeasurementsPage';
 import SessionsPage from './SessionsPage';
 import SettingsPage from './SettingsPage';
 import {
+  getFreshHubDiagnostics,
   getFreshHubSession,
+  getFreshHubStatus,
   getFreshHubTelemetry,
   getHubAlerts,
   getHubStationState,
@@ -37,7 +39,14 @@ import {
   fetchStoredSessions,
   type StoredSession,
 } from './hubApi';
-import type { AcTelemetry, AlertItem, LiveSession, StationState } from './types';
+import type {
+  AcTelemetry,
+  AlertItem,
+  CoreDiagnostics,
+  CoreStatus,
+  LiveSession,
+  StationState,
+} from './types';
 
 type Page = 'dashboard' | 'measurements' | 'history' | 'data' | 'sessions' | 'alerts' | 'diagnostics' | 'settings';
 
@@ -63,6 +72,7 @@ const pageTitles: Record<Page, string> = {
 };
 
 const LIVE_MAX_AGE_MS = 25_000;
+const DIAGNOSTICS_MAX_AGE_MS = 45_000;
 
 function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('fr-FR', {
@@ -100,6 +110,8 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [telemetry, setTelemetry] = useState<AcTelemetry | null>(null);
   const [session, setSession] = useState<LiveSession | null>(null);
+  const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CoreDiagnostics | null>(null);
   const [storedSessions, setStoredSessions] = useState<StoredSession[]>([]);
   const [hubOnline, setHubOnline] = useState(false);
   const [hubLive, setHubLive] = useState(false);
@@ -114,11 +126,15 @@ export default function App() {
       const live = isHubDataLive(LIVE_MAX_AGE_MS);
       const hubTelemetry = getFreshHubTelemetry(LIVE_MAX_AGE_MS);
       const hubSession = getFreshHubSession(LIVE_MAX_AGE_MS);
+      const hubStatus = getFreshHubStatus(DIAGNOSTICS_MAX_AGE_MS);
+      const hubDiagnostics = getFreshHubDiagnostics(DIAGNOSTICS_MAX_AGE_MS);
       const state = connected ? getHubStationState() : 'OFFLINE';
 
       setHubOnline(connected);
       setHubLive(live);
       setStationState(state);
+      setCoreStatus(hubStatus);
+      setDiagnostics(hubDiagnostics);
 
       if (hubTelemetry) {
         setTelemetry((previous) => {
@@ -170,7 +186,18 @@ export default function App() {
     if (page === 'data') return <DataLoggerPage hubOnline={hubOnline} databaseOnline={databaseOnline} />;
     if (page === 'sessions') return <SessionsPage session={session} hubLive={hubLive} stored={storedSessions} />;
     if (page === 'alerts') return <AlertsPage items={eventItems} hubLive={hubLive} />;
-    if (page === 'diagnostics') return <DiagnosticsPage telemetry={telemetry} hubLive={hubLive} hubOnline={hubOnline} />;
+    if (page === 'diagnostics') {
+      return (
+        <DiagnosticsPage
+          telemetry={telemetry}
+          status={coreStatus}
+          diagnostics={diagnostics}
+          hubLive={hubLive}
+          hubOnline={hubOnline}
+          databaseOnline={databaseOnline}
+        />
+      );
+    }
     if (page === 'settings') return <SettingsPage hubOnline={hubOnline && databaseOnline} />;
     return (
       <DashboardPage
@@ -185,6 +212,10 @@ export default function App() {
   })();
 
   const sourceLabel = hubLive ? 'TEMPS RÉEL' : telemetry ? 'DERNIÈRE MESURE RÉELLE' : 'EN ATTENTE';
+  const pzemOnline = coreStatus?.pzem_online ?? diagnostics?.pzem_online ?? Boolean(telemetry);
+  const bleLabel = diagnostics
+    ? diagnostics.ble_connected ? 'CONNECTÉ' : 'PRÊT'
+    : '—';
 
   return (
     <div className="app-shell">
@@ -236,9 +267,9 @@ export default function App() {
         <footer className="footer-status">
           <div><Wifi size={15} /> Hub <strong>{hubOnline ? 'OK' : 'HORS LIGNE'}</strong></div>
           <div><Radio size={15} /> Télémétrie <strong>{hubLive ? 'LIVE' : telemetry ? 'STALE' : '—'}</strong></div>
-          <div><Gauge size={15} /> PZEM <strong>{telemetry ? 'RÉEL' : '—'}</strong></div>
+          <div><Gauge size={15} /> PZEM <strong>{pzemOnline ? 'RÉEL' : '—'}</strong></div>
           <div><Database size={15} /> DB <strong>{databaseOnline ? 'ACTIVE' : '—'}</strong></div>
-          <div><Bluetooth size={15} /> BLE <strong>PRÉVU</strong></div>
+          <div><Bluetooth size={15} /> BLE <strong>{bleLabel}</strong></div>
           <span>Dernière donnée réelle : {telemetry ? formatTime(telemetry.timestamp) : '—'}</span>
         </footer>
       </main>
