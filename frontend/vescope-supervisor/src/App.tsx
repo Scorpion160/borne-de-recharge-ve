@@ -207,6 +207,8 @@ export default function App() {
         hubLive={hubLive}
         hubOnline={hubOnline}
         stationState={stationState}
+        status={coreStatus}
+        diagnostics={diagnostics}
       />
     );
   })();
