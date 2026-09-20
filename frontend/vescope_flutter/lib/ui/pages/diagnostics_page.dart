@@ -79,7 +79,7 @@ class DiagnosticsPage extends StatelessWidget {
       _Panel(
         eyebrow: 'CONTINUITÉ DES DONNÉES',
         title: 'Stockage local',
-        icon: Icons.hard_drive_outlined,
+        icon: Icons.storage_outlined,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
