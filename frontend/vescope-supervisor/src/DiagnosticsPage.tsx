@@ -1,7 +1,9 @@
 import { Database, Gauge, HardDrive, Radio, Server, Wifi } from 'lucide-react';
 import type { AcTelemetry, CoreDiagnostics, CoreStatus } from './types';
 
-function LinkBadge({ label, state, detail }: { label: string; state: 'online' | 'offline' | 'planned'; detail?: string }) {
+type LinkState = 'online' | 'offline' | 'planned' | 'warning' | 'ready';
+
+function LinkBadge({ label, state, detail }: { label: string; state: LinkState; detail?: string }) {
   return (
     <div className={`link-badge link-badge--${state}`} title={detail}>
       <span className="link-badge__dot" /><span>{label}</span>{detail && <small>{detail}</small>}
@@ -45,8 +47,19 @@ export default function DiagnosticsPage({
   hubOnline: boolean;
   databaseOnline: boolean;
 }) {
-  const pzemOnline = status?.pzem_online ?? diagnostics?.pzem_online ?? Boolean(telemetry);
+  const pzemOnline = hubLive && telemetry
+    ? true
+    : (status?.pzem_online ?? diagnostics?.pzem_online ?? false);
   const wifiOnline = status?.transport_wifi ?? diagnostics?.wifi_connected;
+  const wifiRssi = diagnostics?.wifi_rssi_dbm;
+  const wifiWeak = wifiOnline && wifiRssi !== undefined && wifiRssi <= -85;
+  const wifiState: LinkState = wifiOnline ? (wifiWeak ? 'warning' : 'online') : 'offline';
+  const wifiDetail = wifiRssi !== undefined
+    ? `${wifiRssi} dBm${wifiWeak ? ' · signal faible' : ''}`
+    : undefined;
+  const bleState: LinkState = diagnostics
+    ? (diagnostics.ble_connected ? 'online' : 'ready')
+    : 'planned';
   const firmware = diagnostics?.firmware ?? status?.firmware ?? '—';
   const durableAvailable = diagnostics?.durable_store_ok !== undefined
     || diagnostics?.durable_pending_telemetry !== undefined
@@ -79,14 +92,14 @@ export default function DiagnosticsPage({
         <div className="links-stack">
           <LinkBadge label="VE-SCOPE Hub" state={hubOnline ? 'online' : 'offline'} detail={hubOnline ? 'WebSocket connecté' : 'Hors ligne'} />
           <LinkBadge label="PostgreSQL" state={databaseOnline ? 'online' : 'offline'} detail={databaseOnline ? 'Historisation active' : 'Indisponible'} />
-          <LinkBadge label="Wi-Fi borne" state={wifiOnline ? 'online' : 'offline'} detail={diagnostics?.wifi_rssi_dbm !== undefined ? `${diagnostics.wifi_rssi_dbm} dBm` : undefined} />
-          <LinkBadge label="PZEM" state={pzemOnline ? 'online' : 'offline'} detail={pzemOnline ? 'Acquisition réelle' : 'Aucune mesure récente'} />
-          <LinkBadge label="BLE" state={diagnostics ? 'online' : 'planned'} detail={diagnostics ? (diagnostics.ble_connected ? 'Client connecté' : 'Service disponible') : 'Disponible avec 0.2.12'} />
+          <LinkBadge label="Wi-Fi borne" state={wifiState} detail={wifiDetail} />
+          <LinkBadge label="PZEM" state={pzemOnline ? 'online' : 'offline'} detail={pzemOnline ? (hubLive ? 'Acquisition confirmée par télémétrie récente' : 'Acquisition réelle') : 'Aucune mesure récente'} />
+          <LinkBadge label="BLE" state={bleState} detail={diagnostics ? (diagnostics.ble_connected ? 'Client connecté' : 'Service disponible') : 'Disponible avec 0.2.12'} />
         </div>
         <dl className="detail-list">
           <div><dt>Transport cloud</dt><dd>{diagnostics?.cloud_transport ?? status?.cloud_transport ?? '—'}</dd></div>
           <div><dt>Adresse Wi-Fi</dt><dd>{diagnostics?.wifi_ip || '—'}</dd></div>
-          <div><dt>RSSI</dt><dd>{diagnostics?.wifi_rssi_dbm !== undefined ? `${diagnostics.wifi_rssi_dbm} dBm` : '—'}</dd></div>
+          <div><dt>RSSI</dt><dd>{wifiRssi !== undefined ? `${wifiRssi} dBm${wifiWeak ? ' · faible' : ''}` : '—'}</dd></div>
           <div><dt>MQTT TLS</dt><dd>{boolLabel(diagnostics?.mqtt_connected, 'Connecté', 'Non connecté')}</dd></div>
           <div><dt>Fallback HTTPS</dt><dd>{boolLabel(diagnostics?.https_fallback_ok, 'Opérationnel', 'Non confirmé')}</dd></div>
           <div><dt>Portail captif</dt><dd>{status?.captive_portal_enabled ?? diagnostics?.captive_portal_enabled ? boolLabel(status?.captive_portal_authenticated ?? diagnostics?.captive_portal_authenticated, 'Authentifié', 'Non authentifié') : 'Désactivé'}</dd></div>
