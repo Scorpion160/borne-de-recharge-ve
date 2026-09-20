@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../state/vescope_controller.dart';
 import '../pages/dashboard_page.dart';
+import '../pages/historical_page.dart';
+import '../pages/measurements_page.dart';
 
 class VescopeShell extends StatefulWidget {
   const VescopeShell({
@@ -105,8 +107,16 @@ class _VescopeShellState extends State<VescopeShell> {
   }
 
   Widget _page() {
-    if (_index == 0) return DashboardPage(controller: widget.controller);
-    return _MigrationPage(title: _items[_index].label, icon: _items[_index].icon);
+    switch (_index) {
+      case 0:
+        return DashboardPage(controller: widget.controller);
+      case 1:
+        return MeasurementsPage(controller: widget.controller);
+      case 2:
+        return const HistoricalPage();
+      default:
+        return _MigrationPage(title: _items[_index].label, icon: _items[_index].icon);
+    }
   }
 }
 
