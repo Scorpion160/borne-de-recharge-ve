@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Activity, Bluetooth, Clock3, Database, Radio, Zap } from 'lucide-react';
-import type { AcTelemetry, LiveSession, StationState } from './types';
+import { Activity, Bluetooth, Clock3, Database, Radio, Wifi, Zap } from 'lucide-react';
+import type { AcTelemetry, CoreDiagnostics, CoreStatus, LiveSession, StationState } from './types';
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -65,19 +65,32 @@ function LinkBadge({ label, state, detail }: { label: string; state: 'online' | 
   );
 }
 
-export default function DashboardPage({ telemetry, session, powerHistory, hubLive, hubOnline, stationState }: {
+export default function DashboardPage({
+  telemetry,
+  session,
+  powerHistory,
+  hubLive,
+  hubOnline,
+  stationState,
+  status,
+  diagnostics,
+}: {
   telemetry: AcTelemetry | null;
   session: LiveSession | null;
   powerHistory: number[];
   hubLive: boolean;
   hubOnline: boolean;
   stationState: StationState;
+  status: CoreStatus | null;
+  diagnostics: CoreDiagnostics | null;
 }) {
   const telemetryDetail = telemetry
     ? hubLive
       ? `Mesure réelle · ${formatTime(telemetry.timestamp)}`
       : `Dernière mesure réelle · ${formatTime(telemetry.timestamp)}`
     : 'En attente des données de la borne';
+  const pzemOnline = status?.pzem_online ?? diagnostics?.pzem_online ?? Boolean(telemetry);
+  const wifiOnline = status?.transport_wifi ?? diagnostics?.wifi_connected;
 
   return (
     <>
@@ -121,9 +134,10 @@ export default function DashboardPage({ telemetry, session, powerHistory, hubLiv
           <div className="links-stack">
             <LinkBadge label="VE-SCOPE Hub" state={hubOnline ? 'online' : 'offline'} detail={hubOnline ? 'WebSocket connecté' : 'Reconnexion automatique'} />
             <LinkBadge label="Télémétrie borne" state={hubLive ? 'online' : 'offline'} detail={hubLive ? 'Donnée réelle récente' : 'Aucune donnée récente'} />
-            <LinkBadge label="PZEM" state={telemetry ? 'online' : 'offline'} detail={telemetry ? 'Mesure réelle via VE-SCOPE Core' : 'Aucune mesure reçue'} />
+            <LinkBadge label="Wi-Fi Core" state={wifiOnline ? 'online' : 'offline'} detail={diagnostics?.wifi_rssi_dbm !== undefined ? `${diagnostics.wifi_rssi_dbm} dBm` : 'État remonté par le Core'} />
+            <LinkBadge label="PZEM" state={pzemOnline ? 'online' : 'offline'} detail={pzemOnline ? 'Acquisition réelle' : 'Aucune mesure récente'} />
+            <LinkBadge label="Bluetooth" state={diagnostics ? 'online' : 'planned'} detail={diagnostics ? (diagnostics.ble_connected ? 'Client connecté' : 'Service local disponible') : 'Disponible avec Core 0.2.12'} />
             <LinkBadge label="BMS" state="planned" detail="V1.1" />
-            <LinkBadge label="Bluetooth" state="planned" detail="Prévu sur Core" />
           </div>
         </article>
       </section>
