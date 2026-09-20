@@ -52,14 +52,10 @@ function liveAsStored(session: LiveSession): StoredSession {
   };
 }
 
-function isRecoveredSession(session: StoredSession): boolean {
-  return session.end_reason === 'RECOVERED_FROM_REBOOT_FRAGMENTS';
-}
-
-function endReasonLabel(reason: string): string {
+function operationalEndReason(reason: string | null): string | null {
+  if (!reason || reason === 'RECOVERED_FROM_REBOOT_FRAGMENTS') return null;
   const labels: Record<string, string> = {
     CURRENT_BELOW_THRESHOLD: 'Courant sous le seuil de fin de charge',
-    RECOVERED_FROM_REBOOT_FRAGMENTS: 'Session reconstruite après redémarrages du Core',
   };
   return labels[reason] ?? reason;
 }
@@ -88,7 +84,7 @@ export default function SessionsPage({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = rows.find((item) => item.session_id === selectedId) ?? rows[0] ?? null;
-  const selectedRecovered = selected ? isRecoveredSession(selected) : false;
+  const selectedEndReason = selected ? operationalEndReason(selected.end_reason) : null;
 
   return (
     <div className="sessions-page">
@@ -128,9 +124,7 @@ export default function SessionsPage({
                 <span>{formatDuration(item.duration_s)}</span>
                 <span>{((item.energy_wh ?? 0) / 1000).toFixed(3)} kWh</span>
                 <span>{((item.max_power_w ?? 0) / 1000).toFixed(2)} kW</span>
-                <span className={item.state === 'CHARGING' ? 'status-text' : undefined}>
-                  {stateLabel(item.state)}{isRecoveredSession(item) ? ' · récupérée' : ''}
-                </span>
+                <span className={item.state === 'CHARGING' ? 'status-text' : undefined}>{stateLabel(item.state)}</span>
               </button>
             ))}
             {rows.length === 0 && <p className="note">Aucune session réelle disponible pour ces filtres.</p>}
@@ -144,10 +138,7 @@ export default function SessionsPage({
           </div>
           {selected ? (
             <>
-              <div className="session-detail-state-row">
-                <div className="session-detail-state">{stateLabel(selected.state)}</div>
-                {selectedRecovered && <div className="session-recovered-badge">RECONSTRUITE</div>}
-              </div>
+              <div className="session-detail-state">{stateLabel(selected.state)}</div>
               <div className="session-detail-grid">
                 <div><Clock3 size={16} /><span>Début</span><strong>{dateTime(selected.started_at)}</strong></div>
                 <div><Clock3 size={16} /><span>Fin</span><strong>{dateTime(selected.ended_at)}</strong></div>
@@ -158,12 +149,7 @@ export default function SessionsPage({
                 <div><Gauge size={16} /><span>PF moyen</span><strong>{(selected.average_power_factor ?? 0).toFixed(3)}</strong></div>
                 <div><Clock3 size={16} /><span>Durée</span><strong>{formatDuration(selected.duration_s)}</strong></div>
               </div>
-              {selected.end_reason && <p className="note">Cause de fin : {endReasonLabel(selected.end_reason)}</p>}
-              {selectedRecovered && (
-                <p className="note session-recovery-note">
-                  Cette recharge est physique, mais son résumé a été reconstruit à partir de plusieurs fragments après redémarrages. Les agrégats récupérés sont conservés pour l’historique ; ils ne constituent pas une courbe temporelle complète ni un dataset TRUSTED.
-                </p>
-              )}
+              {selectedEndReason && <p className="note">Cause de fin : {selectedEndReason}</p>}
             </>
           ) : <p className="note">Aucune session réelle à afficher.</p>}
         </aside>
