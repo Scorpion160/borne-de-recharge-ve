@@ -24,20 +24,31 @@ import MeasurementsPage from './MeasurementsPage';
 import SessionsPage from './SessionsPage';
 import SettingsPage from './SettingsPage';
 import {
+  getFreshHubDiagnostics,
   getFreshHubSession,
+  getFreshHubStatus,
+  getFreshHubTelemetry,
   getHubAlerts,
   getHubStationState,
   isHubConnected,
   isHubDataLive,
 } from './dataBridge';
 import {
+  fetchDeviceSettings,
   fetchHubHealth,
   fetchStoredEvents,
   fetchStoredSessions,
+  fetchTelemetrySeries,
   type StoredSession,
 } from './hubApi';
-import { alerts as simulationAlerts, evolveTelemetry, initialSession, initialTelemetry } from './mock';
-import type { AlertItem, LiveSession, StationState } from './types';
+import type {
+  AcTelemetry,
+  AlertItem,
+  CoreDiagnostics,
+  CoreStatus,
+  LiveSession,
+  StationState,
+} from './types';
 
 type Page = 'dashboard' | 'measurements' | 'history' | 'data' | 'sessions' | 'alerts' | 'diagnostics' | 'settings';
 
@@ -61,6 +72,9 @@ const pageTitles: Record<Page, string> = {
   diagnostics: 'Diagnostic',
   settings: 'Paramètres',
 };
+
+const DEFAULT_LIVE_MAX_AGE_MS = 180_000;
+const DIAGNOSTICS_MAX_AGE_MS = 45_000;
 
 function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('fr-FR', {
@@ -86,79 +100,113 @@ function stationStateLabel(state: StationState): string {
   return labels[state];
 }
 
+function eventFingerprint(item: AlertItem): string {
+  const timestampMs = new Date(item.timestamp).getTime();
+  return [
+    item.code,
+    item.source ?? '',
+    Number.isFinite(timestampMs) ? timestampMs : item.timestamp,
+    item.value ?? '',
+    item.threshold ?? '',
+  ].join('|');
+}
+
 function mergeEvents(...groups: AlertItem[][]): AlertItem[] {
-  return groups
-    .flat()
-    .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+  const merged = groups.flat();
+  const seen = new Set<string>();
+  return merged
+    .filter((item) => {
+      const fingerprint = eventFingerprint(item);
+      if (seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    })
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 200);
 }
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
-  const [telemetry, setTelemetry] = useState(initialTelemetry);
-  const [session, setSession] = useState<LiveSession>(initialSession);
+  const [telemetry, setTelemetry] = useState<AcTelemetry | null>(null);
+  const [session, setSession] = useState<LiveSession | null>(null);
+  const [coreStatus, setCoreStatus] = useState<CoreStatus | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CoreDiagnostics | null>(null);
   const [storedSessions, setStoredSessions] = useState<StoredSession[]>([]);
   const [hubOnline, setHubOnline] = useState(false);
   const [hubLive, setHubLive] = useState(false);
   const [databaseOnline, setDatabaseOnline] = useState(false);
-  const [stationState, setStationState] = useState<StationState>('CHARGING');
-  const [eventItems, setEventItems] = useState<AlertItem[]>(simulationAlerts);
-  const [powerHistory, setPowerHistory] = useState<number[]>(() =>
-    Array.from({ length: 48 }, (_, index) => 2140 + Math.sin(index / 5) * 45),
-  );
+  const [stationState, setStationState] = useState<StationState>('OFFLINE');
+  const [eventItems, setEventItems] = useState<AlertItem[]>([]);
+  const [powerHistory, setPowerHistory] = useState<number[]>([]);
+  const [liveMaxAgeMs, setLiveMaxAgeMs] = useState(DEFAULT_LIVE_MAX_AGE_MS);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const connected = isHubConnected();
-      const live = isHubDataLive();
-      const hubSession = getFreshHubSession();
+      const live = isHubDataLive(liveMaxAgeMs);
+      const hubTelemetry = getFreshHubTelemetry(liveMaxAgeMs);
+      const hubSession = getFreshHubSession(liveMaxAgeMs);
+      const diagnosticsMaxAgeMs = Math.max(DIAGNOSTICS_MAX_AGE_MS, liveMaxAgeMs);
+      const hubStatus = getFreshHubStatus(diagnosticsMaxAgeMs);
+      const hubDiagnostics = getFreshHubDiagnostics(diagnosticsMaxAgeMs);
+      const state = connected ? getHubStationState() : 'OFFLINE';
 
       setHubOnline(connected);
       setHubLive(live);
-      setStationState(live ? getHubStationState() : connected ? 'OFFLINE' : 'CHARGING');
+      setStationState(state);
+      setCoreStatus(hubStatus);
+      setDiagnostics(hubDiagnostics);
 
-      if (live) {
-        setEventItems((current) => mergeEvents(getHubAlerts(), current));
-      } else if (!connected) {
-        setEventItems(simulationAlerts);
+      if (hubTelemetry) {
+        setTelemetry((previous) => {
+          const isNewSample = !previous
+            || previous.timestamp !== hubTelemetry.timestamp
+            || previous.sequence !== hubTelemetry.sequence;
+          if (isNewSample) {
+            setPowerHistory((values) => [...values.slice(-59), hubTelemetry.active_power_w]);
+          }
+          return hubTelemetry;
+        });
       }
 
-      setTelemetry((previous) => {
-        const next = evolveTelemetry(previous);
-        setPowerHistory((values) => [...values.slice(-59), next.active_power_w]);
+      if (state === 'CHARGING' || state === 'CHARGING_LIMITED' || state === 'SESSION_STARTING' || state === 'FINISHING') {
+        if (hubSession) setSession(hubSession);
+      } else {
+        setSession(null);
+      }
 
-        if (hubSession) {
-          setSession(hubSession);
-        } else if (!connected) {
-          setSession((current) => ({
-            ...current,
-            duration_s: current.duration_s + 1,
-            energy_wh: current.energy_wh + next.active_power_w / 3600,
-            max_power_w: Math.max(current.max_power_w, next.active_power_w),
-            max_current_a: Math.max(current.max_current_a, next.current_a),
-          }));
-        }
-        return next;
-      });
+      if (connected) {
+        setEventItems((current) => mergeEvents(getHubAlerts(), current));
+      }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [liveMaxAgeMs]);
 
   useEffect(() => {
     let mounted = true;
     const refreshHistory = async () => {
-      if (!isHubConnected()) {
-        if (mounted) setDatabaseOnline(false);
-        return;
-      }
-      const [health, sessions, events] = await Promise.all([
-        fetchHubHealth(), fetchStoredSessions(100), fetchStoredEvents(200),
+      const [health, sessions, events, settings, recentSeries] = await Promise.all([
+        fetchHubHealth(),
+        fetchStoredSessions(100),
+        fetchStoredEvents(200),
+        fetchDeviceSettings(),
+        fetchTelemetrySeries('15m'),
       ]);
       if (!mounted) return;
       setDatabaseOnline(Boolean(health?.database_connected));
       setStoredSessions(sessions);
       setEventItems(mergeEvents(getHubAlerts(), events));
+
+      const staleSeconds = settings?.alarm_thresholds.stale_after_s;
+      if (typeof staleSeconds === 'number' && Number.isFinite(staleSeconds)) {
+        setLiveMaxAgeMs(Math.max(5_000, Math.min(300_000, staleSeconds * 1000)));
+      }
+
+      const recentPowers = (recentSeries?.items ?? [])
+        .map((item) => item.active_power_w)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        .slice(-60);
+      if (recentPowers.length >= 2) setPowerHistory(recentPowers);
     };
     void refreshHistory();
     const timer = window.setInterval(() => void refreshHistory(), 5000);
@@ -173,8 +221,19 @@ export default function App() {
     if (page === 'history') return <HistoricalAnalysis />;
     if (page === 'data') return <DataLoggerPage hubOnline={hubOnline} databaseOnline={databaseOnline} />;
     if (page === 'sessions') return <SessionsPage session={session} hubLive={hubLive} stored={storedSessions} />;
-    if (page === 'alerts') return <AlertsPage items={eventItems} hubLive={hubLive} />;
-    if (page === 'diagnostics') return <DiagnosticsPage telemetry={telemetry} hubLive={hubLive} hubOnline={hubOnline} />;
+    if (page === 'alerts') return <AlertsPage items={eventItems} />;
+    if (page === 'diagnostics') {
+      return (
+        <DiagnosticsPage
+          telemetry={telemetry}
+          status={coreStatus}
+          diagnostics={diagnostics}
+          hubLive={hubLive}
+          hubOnline={hubOnline}
+          databaseOnline={databaseOnline}
+        />
+      );
+    }
     if (page === 'settings') return <SettingsPage hubOnline={hubOnline && databaseOnline} />;
     return (
       <DashboardPage
@@ -184,9 +243,19 @@ export default function App() {
         hubLive={hubLive}
         hubOnline={hubOnline}
         stationState={stationState}
+        status={coreStatus}
+        diagnostics={diagnostics}
       />
     );
   })();
+
+  const sourceLabel = hubLive ? 'TEMPS RÉEL' : telemetry ? 'DERNIÈRE MESURE RÉELLE' : 'EN ATTENTE';
+  const pzemOnline = hubLive && telemetry
+    ? true
+    : (coreStatus?.pzem_online ?? diagnostics?.pzem_online ?? false);
+  const bleLabel = diagnostics
+    ? diagnostics.ble_connected ? 'CONNECTÉ' : 'PRÊT'
+    : '—';
 
   return (
     <div className="app-shell">
@@ -205,6 +274,9 @@ export default function App() {
               </button>
             );
           })}
+          <button className={`mobile-settings-nav ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>
+            <Settings size={18} /><span>Paramètres</span>
+          </button>
         </nav>
 
         <div className="sidebar__future">
@@ -217,7 +289,7 @@ export default function App() {
           <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
             <Settings size={18} /> <span>Paramètres</span>
           </button>
-          <div className="mode-pill"><span /> {hubLive ? 'SOURCE HUB' : 'MODE SIMULATION'}</div>
+          <div className="mode-pill"><span /> {hubOnline ? 'SOURCE BORNE RÉELLE' : 'HUB HORS LIGNE'}</div>
         </div>
       </aside>
 
@@ -228,7 +300,7 @@ export default function App() {
             <h1>{pageTitles[page]}</h1>
           </div>
           <div className="topbar__right">
-            <div className="source-chip"><Cable size={16} /> borne-01 · {hubLive ? 'HUB' : 'SIM'}</div>
+            <div className="source-chip"><Cable size={16} /> borne-01 · {sourceLabel}</div>
             <div className={`status-pill status-pill--${stationState.toLowerCase()}`}><span /> {stationStateLabel(stationState)}</div>
           </div>
         </header>
@@ -236,12 +308,12 @@ export default function App() {
         <div className="content-area">{content}</div>
 
         <footer className="footer-status">
-          <div><Wifi size={15} /> Hub <strong>{hubOnline ? 'OK' : 'LOCAL'}</strong></div>
-          <div><Radio size={15} /> MQTT <strong>{hubLive ? 'LIVE' : 'SIM'}</strong></div>
-          <div><Gauge size={15} /> PZEM <strong>{hubLive ? 'LIVE' : 'SIMULÉ'}</strong></div>
+          <div><Wifi size={15} /> Hub <strong>{hubOnline ? 'OK' : 'HORS LIGNE'}</strong></div>
+          <div><Radio size={15} /> Télémétrie <strong>{hubLive ? 'LIVE' : telemetry ? 'STALE' : '—'}</strong></div>
+          <div><Gauge size={15} /> PZEM <strong>{pzemOnline ? 'RÉEL' : '—'}</strong></div>
           <div><Database size={15} /> DB <strong>{databaseOnline ? 'ACTIVE' : '—'}</strong></div>
-          <div><Bluetooth size={15} /> BLE <strong>PRÉVU</strong></div>
-          <span>Dernière donnée : {formatTime(telemetry.timestamp)}</span>
+          <div><Bluetooth size={15} /> BLE <strong>{bleLabel}</strong></div>
+          <span>Dernière donnée réelle : {telemetry ? formatTime(telemetry.timestamp) : '—'}</span>
         </footer>
       </main>
     </div>

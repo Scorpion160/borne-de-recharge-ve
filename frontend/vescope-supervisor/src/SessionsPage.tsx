@@ -52,35 +52,46 @@ function liveAsStored(session: LiveSession): StoredSession {
   };
 }
 
+function operationalEndReason(reason: string | null): string | null {
+  if (!reason || reason === 'RECOVERED_FROM_REBOOT_FRAGMENTS') return null;
+  const labels: Record<string, string> = {
+    CURRENT_BELOW_THRESHOLD: 'Courant sous le seuil de fin de charge',
+  };
+  return labels[reason] ?? reason;
+}
+
 export default function SessionsPage({
   session,
   stored,
   hubLive,
 }: {
-  session: LiveSession;
+  session: LiveSession | null;
   stored: StoredSession[];
   hubLive: boolean;
 }) {
   const [stateFilter, setStateFilter] = useState<'ALL' | StationState>('ALL');
   const [query, setQuery] = useState('');
   const rows = useMemo(() => {
-    const source = stored.length > 0 ? stored : [liveAsStored(session)];
-    return source.filter((item) => {
+    const withLive = session && hubLive
+      ? [liveAsStored(session), ...stored.filter((item) => item.session_id !== session.session_id)]
+      : stored;
+    return withLive.filter((item) => {
       const stateMatches = stateFilter === 'ALL' || item.state === stateFilter;
       const queryMatches = item.session_id.toLowerCase().includes(query.trim().toLowerCase());
       return stateMatches && queryMatches;
     });
-  }, [query, session, stateFilter, stored]);
+  }, [hubLive, query, session, stateFilter, stored]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = rows.find((item) => item.session_id === selectedId) ?? rows[0] ?? null;
+  const selectedEndReason = selected ? operationalEndReason(selected.end_reason) : null;
 
   return (
     <div className="sessions-page">
       <section className="panel sessions-toolbar">
         <div className="panel__title-row">
-          <div><span className="eyebrow">POSTGRESQL · HISTORIQUE</span><h2>Sessions de recharge</h2></div>
-          <span className="quality-badge">{hubLive ? 'HUB' : 'LOCAL'}</span>
+          <div><span className="eyebrow">POSTGRESQL · DONNÉES RÉELLES</span><h2>Sessions de recharge</h2></div>
+          <span className="quality-badge">{hubLive ? 'HUB LIVE' : 'HISTORIQUE'}</span>
         </div>
         <div className="filter-bar">
           <label className="search-field">
@@ -116,7 +127,7 @@ export default function SessionsPage({
                 <span className={item.state === 'CHARGING' ? 'status-text' : undefined}>{stateLabel(item.state)}</span>
               </button>
             ))}
-            {rows.length === 0 && <p className="note">Aucune session ne correspond aux filtres.</p>}
+            {rows.length === 0 && <p className="note">Aucune session réelle disponible pour ces filtres.</p>}
           </div>
         </div>
 
@@ -138,9 +149,9 @@ export default function SessionsPage({
                 <div><Gauge size={16} /><span>PF moyen</span><strong>{(selected.average_power_factor ?? 0).toFixed(3)}</strong></div>
                 <div><Clock3 size={16} /><span>Durée</span><strong>{formatDuration(selected.duration_s)}</strong></div>
               </div>
-              {selected.end_reason && <p className="note">Cause de fin : {selected.end_reason}</p>}
+              {selectedEndReason && <p className="note">Cause de fin : {selectedEndReason}</p>}
             </>
-          ) : <p className="note">Sélectionnez une session pour afficher son détail.</p>}
+          ) : <p className="note">Aucune session réelle à afficher.</p>}
         </aside>
       </section>
     </div>

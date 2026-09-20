@@ -6,7 +6,7 @@
 .logger-status strong { font-size: .95rem; }
 .logger-status.ok strong { color: #57d58b; }
 .logger-status.warn strong { color: #f0b35a; }
-.logger-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.logger-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .logger-card { display: flex; flex-direction: column; min-height: 330px; }
 .logger-card h3, .logger-retention h3 { margin: 6px 0 0; font-size: 1.2rem; }
 .logger-card__icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: #102d49; color: #59aefe; margin-bottom: 18px; }

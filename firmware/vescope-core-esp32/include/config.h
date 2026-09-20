@@ -5,7 +5,7 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.1.2-hw";
+constexpr char FIRMWARE_VERSION[] = "0.2.12-field";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
@@ -40,15 +40,36 @@ constexpr int OLED_HEIGHT = 64;
 constexpr uint8_t PZEM_ADDRESS = 0xF8;
 constexpr uint32_t PZEM_BAUD = 9600;
 constexpr uint32_t PZEM_TIMEOUT_MS = 350;
+constexpr uint32_t PZEM_ERROR_LOG_PERIOD_MS = 30000;
+constexpr uint32_t PZEM_ONLINE_GRACE_MS = 15000;
 
 // Cadences
-constexpr uint32_t TELEMETRY_PERIOD_MS = 1000;
-constexpr uint32_t SESSION_PERIOD_MS = 1000;
+constexpr uint32_t TELEMETRY_PERIOD_MS = 1000;          // acquisition locale / BLE
+constexpr uint32_t DURABLE_TELEMETRY_PERIOD_MS = 5000;  // archivage cloud garanti
+constexpr uint32_t DURABLE_FLUSH_PERIOD_MS = 1000;
+constexpr uint32_t SESSION_PERIOD_MS = 5000;
 constexpr uint32_t STATUS_PERIOD_MS = 15000;
 constexpr uint32_t DIAGNOSTICS_PERIOD_MS = 10000;
-constexpr uint32_t WIFI_RETRY_MS = 5000;
-constexpr uint32_t MQTT_RETRY_MIN_MS = 1000;
-constexpr uint32_t MQTT_RETRY_MAX_MS = 15000;
+
+// File locale persistante. Le buffer SPIFFS actuel (~960 KiB) permet plus de
+// 24 h de télémétrie durable à 5 s avec le format binaire compact utilisé.
+constexpr size_t DURABLE_QUEUE_MAX_BYTES = 880U * 1024U;
+constexpr uint32_t DURABLE_HEAD_CHECKPOINT_EVERY = 16;
+
+// L'association à certains Wi-Fi gérés peut prendre plusieurs dizaines de
+// secondes. Une nouvelle tentative ne doit jamais interrompre trop vite une
+// association déjà en cours.
+constexpr uint32_t WIFI_RETRY_MS = 30000;
+constexpr uint32_t WIFI_AP_STA_RETRY_MS = 60000;
+constexpr uint32_t WIFI_FALLBACK_AP_AFTER_MS = 60000;
+constexpr uint32_t WIFI_FALLBACK_AP_AFTER_PORTAL_MS = 90000;
+constexpr uint32_t WIFI_AP_STOP_AFTER_RECOVERY_MS = 30000;
+constexpr uint32_t BLE_TELEMETRY_PERIOD_MS = 1000;
+constexpr uint32_t MQTT_RETRY_MIN_MS = 5000;
+constexpr uint32_t MQTT_RETRY_MAX_MS = 60000;
+// Sur un réseau avec portail captif, une fois le fallback HTTPS opérationnel,
+// éviter un handshake MQTT TLS bloquant toutes les 60 s.
+constexpr uint32_t MQTT_RETRY_CAPTIVE_MS = 300000;
 
 // Détection d'une session de recharge AC.
 constexpr float SESSION_START_POWER_W = 100.0F;
@@ -67,5 +88,12 @@ constexpr float VALID_FREQUENCY_MAX_HZ = 70.0F;
 
 // Point d'accès local de maintenance.
 constexpr char AP_SSID_PREFIX[] = "VE-SCOPE-";
+constexpr char MDNS_HOST_PREFIX[] = "vescope-";
+
+// BLE GATT UUIDs VE-SCOPE Core V1.
+constexpr char BLE_SERVICE_UUID[] = "8f110000-6c4d-4f62-9ca8-7ef24ec70001";
+constexpr char BLE_TELEMETRY_UUID[] = "8f110001-6c4d-4f62-9ca8-7ef24ec70001";
+constexpr char BLE_STATUS_UUID[] = "8f110002-6c4d-4f62-9ca8-7ef24ec70001";
+constexpr char BLE_INFO_UUID[] = "8f110003-6c4d-4f62-9ca8-7ef24ec70001";
 
 }  // namespace vescope

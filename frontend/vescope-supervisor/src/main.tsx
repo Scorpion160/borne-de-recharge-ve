@@ -8,6 +8,7 @@ import './theme.css';
 import './analysis.css';
 import './settings.css';
 import './data-logger.css';
+import './responsive.css';
 
 startHubClient();
 

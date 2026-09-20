@@ -1,0 +1,6 @@
+# Copier vers mosquitto/secrets/acl sur le VPS.
+# Chaque carte ne doit publier/lire que ses propres topics.
+
+user borne-01
+topic write vescope/borne-01/#
+topic read vescope/borne-01/commands/#

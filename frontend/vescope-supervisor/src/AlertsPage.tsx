@@ -3,6 +3,7 @@ import { Filter, Search, ShieldCheck } from 'lucide-react';
 import type { AlertItem } from './types';
 
 type SeverityFilter = 'ALL' | AlertItem['severity'];
+type SourceFilter = 'ALL' | 'ELECTRICAL' | 'SYSTEM';
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat('fr-FR', {
@@ -11,26 +12,32 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-export default function AlertsPage({ items, hubLive }: { items: AlertItem[]; hubLive: boolean }) {
+export default function AlertsPage({ items }: { items: AlertItem[] }) {
   const [severity, setSeverity] = useState<SeverityFilter>('ALL');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL');
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return items.filter((item) => {
       const severityMatches = severity === 'ALL' || item.severity === severity;
+      const electrical = item.source === 'pzem_ac';
+      const sourceMatches = sourceFilter === 'ALL'
+        || (sourceFilter === 'ELECTRICAL' && electrical)
+        || (sourceFilter === 'SYSTEM' && !electrical);
       const queryMatches = !normalized
         || item.code.toLowerCase().includes(normalized)
         || item.message.toLowerCase().includes(normalized)
         || item.source?.toLowerCase().includes(normalized);
-      return severityMatches && queryMatches;
+      return severityMatches && sourceMatches && queryMatches;
     });
-  }, [items, query, severity]);
+  }, [items, query, severity, sourceFilter]);
 
   const counts = useMemo(() => ({
     alert: items.filter((item) => item.severity === 'ALERT' || item.severity === 'CRITICAL').length,
     warning: items.filter((item) => item.severity === 'WARNING').length,
     info: items.filter((item) => item.severity === 'INFO').length,
+    electrical: items.filter((item) => item.source === 'pzem_ac').length,
   }), [items]);
 
   return (
@@ -39,12 +46,12 @@ export default function AlertsPage({ items, hubLive }: { items: AlertItem[]; hub
         <article><span>Alertes critiques</span><strong>{counts.alert}</strong></article>
         <article><span>Avertissements</span><strong>{counts.warning}</strong></article>
         <article><span>Informations</span><strong>{counts.info}</strong></article>
-        <article><span>Source</span><strong>{hubLive ? 'VE-SCOPE Hub' : 'Locale'}</strong></article>
+        <article><span>Événements électriques</span><strong>{counts.electrical}</strong></article>
       </section>
 
       <section className="panel">
         <div className="panel__title-row">
-          <div><span className="eyebrow">POSTGRESQL · JOURNAL</span><h2>Alarmes et événements</h2></div>
+          <div><span className="eyebrow">POSTGRESQL · JOURNAL DE PRODUCTION</span><h2>Alarmes et événements</h2></div>
           <ShieldCheck size={20} />
         </div>
 
@@ -61,6 +68,14 @@ export default function AlertsPage({ items, hubLive }: { items: AlertItem[]; hub
               <option value="ALERT">Alerte</option>
               <option value="WARNING">Avertissement</option>
               <option value="INFO">Information</option>
+            </select>
+          </label>
+          <label className="select-with-icon">
+            <Filter size={15} />
+            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}>
+              <option value="ALL">Toutes les sources</option>
+              <option value="ELECTRICAL">Qualité électrique</option>
+              <option value="SYSTEM">Système / supervision</option>
             </select>
           </label>
           <span className="filter-count">{filtered.length} événement{filtered.length > 1 ? 's' : ''}</span>

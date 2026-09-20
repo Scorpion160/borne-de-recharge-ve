@@ -30,6 +30,11 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
     stream, writer = _csv_buffer()
     writer.writerow([
         "timestamp_utc",
+        "received_at_utc",
+        "sample_id",
+        "boot_id",
+        "sequence",
+        "session_id",
         "voltage_v",
         "current_a",
         "active_power_w",
@@ -43,7 +48,9 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
     if bucket is None:
         rows = await database.pool.fetch(
             """
-            SELECT measured_at AS timestamp_utc, voltage_v, current_a, active_power_w,
+            SELECT measured_at AS timestamp_utc, received_at AS received_at_utc,
+                   sample_id, boot_id, sequence, session_id,
+                   voltage_v, current_a, active_power_w,
                    power_factor, frequency_hz, energy_total_wh
             FROM telemetry_ac
             WHERE device_id=$1
@@ -56,6 +63,11 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
         for row in rows:
             writer.writerow([
                 row["timestamp_utc"].isoformat(),
+                row["received_at_utc"].isoformat(),
+                row["sample_id"] or "",
+                row["boot_id"] if row["boot_id"] is not None else "",
+                row["sequence"] if row["sequence"] is not None else "",
+                row["session_id"] or "",
                 row["voltage_v"],
                 row["current_a"],
                 row["active_power_w"],
@@ -70,6 +82,7 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
             """
             SELECT
                 date_bin($3::interval, measured_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS timestamp_utc,
+                MAX(received_at) AS received_at_utc,
                 AVG(voltage_v) AS voltage_v,
                 AVG(current_a) AS current_a,
                 AVG(active_power_w) AS active_power_w,
@@ -90,6 +103,8 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
         for row in rows:
             writer.writerow([
                 row["timestamp_utc"].isoformat(),
+                row["received_at_utc"].isoformat() if row["received_at_utc"] else "",
+                "", "", "", "",
                 row["voltage_v"],
                 row["current_a"],
                 row["active_power_w"],
@@ -99,6 +114,103 @@ async def telemetry_csv(database: Database, device_id: str, range_key: str) -> s
                 row["samples"],
                 resolution,
             ])
+
+    return stream.getvalue()
+
+
+async def trusted_telemetry_csv(database: Database, device_id: str, range_key: str) -> str:
+    """Export scientifique brut : uniquement les mesures explicitement TRUSTED.
+
+    Contrairement à telemetry_csv(), cet export ne fait aucun rééchantillonnage
+    ni agrégation. Chaque ligne correspond donc à une mesure physique validée,
+    avec ses identifiants de boot/échantillon et les métadonnées de validation.
+    """
+    if not database.available or database.pool is None:
+        raise RuntimeError("PostgreSQL indisponible")
+
+    interval = RANGES[range_key][0]
+    stream, writer = _csv_buffer()
+    writer.writerow([
+        "trust_state",
+        "timestamp_utc",
+        "received_at_utc",
+        "ingest_delay_s",
+        "sample_id",
+        "boot_id",
+        "sequence",
+        "session_id",
+        "quality",
+        "voltage_v",
+        "current_a",
+        "active_power_w",
+        "apparent_power_va",
+        "non_active_power_var_est",
+        "power_factor",
+        "frequency_hz",
+        "energy_total_wh",
+        "firmware",
+        "validated_at_utc",
+        "validation_note",
+    ])
+
+    rows = await database.pool.fetch(
+        """
+        SELECT
+            t.measured_at AS timestamp_utc,
+            t.received_at AS received_at_utc,
+            EXTRACT(EPOCH FROM (t.received_at - t.measured_at)) AS ingest_delay_s,
+            t.sample_id,
+            t.boot_id,
+            t.sequence,
+            t.session_id,
+            t.quality,
+            t.voltage_v,
+            t.current_a,
+            t.active_power_w,
+            t.apparent_power_va,
+            t.non_active_power_var_est,
+            t.power_factor,
+            t.frequency_hz,
+            t.energy_total_wh,
+            r.firmware,
+            r.validated_at,
+            r.validation_note
+        FROM telemetry_ac_trusted t
+        JOIN telemetry_trust_registry r
+          ON r.device_id = t.device_id
+         AND r.boot_id = t.boot_id
+         AND r.status = 'TRUSTED'
+        WHERE t.device_id=$1
+          AND t.measured_at >= NOW() - $2::interval
+        ORDER BY t.measured_at ASC, t.boot_id ASC, t.sequence ASC
+        """,
+        device_id,
+        interval,
+    )
+
+    for row in rows:
+        writer.writerow([
+            "TRUSTED",
+            row["timestamp_utc"].isoformat(),
+            row["received_at_utc"].isoformat(),
+            float(row["ingest_delay_s"]) if row["ingest_delay_s"] is not None else "",
+            row["sample_id"] or "",
+            row["boot_id"] if row["boot_id"] is not None else "",
+            row["sequence"] if row["sequence"] is not None else "",
+            row["session_id"] or "",
+            row["quality"] or "",
+            row["voltage_v"],
+            row["current_a"],
+            row["active_power_w"],
+            row["apparent_power_va"],
+            row["non_active_power_var_est"],
+            row["power_factor"],
+            row["frequency_hz"],
+            row["energy_total_wh"],
+            row["firmware"] or "",
+            row["validated_at"].isoformat() if row["validated_at"] else "",
+            row["validation_note"] or "",
+        ])
 
     return stream.getvalue()
 

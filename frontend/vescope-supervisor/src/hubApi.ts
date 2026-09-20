@@ -167,9 +167,12 @@ export async function saveDeviceSettings(thresholds: AlarmThresholds): Promise<D
   return (await response.json()) as DeviceSettingsResponse;
 }
 
-
 export function telemetryCsvUrl(range: CsvTelemetryRange): string {
   return `${apiBase()}/api/v1/devices/${encodeURIComponent(deviceId())}/exports/telemetry.csv?range=${range}`;
+}
+
+export function trustedTelemetryCsvUrl(range: CsvTelemetryRange): string {
+  return `${apiBase()}/api/v1/devices/${encodeURIComponent(deviceId())}/exports/telemetry-trusted.csv?range=${range}`;
 }
 
 export function sessionsCsvUrl(): string {

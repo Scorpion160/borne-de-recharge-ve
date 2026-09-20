@@ -8,16 +8,15 @@ Projet de conception, instrumentation et supervision d'une borne de recharge pou
 
 Le projet est structuré autour de plusieurs sous-systèmes :
 
-- **VE-SCOPE Core** : acquisition embarquée sur ESP32-S3 et PCB intégré à la borne ;
+- **VE-SCOPE Core** : acquisition embarquée sur ESP32 et PCB intégré à la borne ;
 - **VE-SCOPE Local** : interface locale accessible par Wi-Fi/IP, sans dépendance Internet ;
-- **VE-SCOPE Hub** : collecte MQTT, API, stockage et services distants ;
+- **VE-SCOPE Hub** : collecte MQTT/HTTPS, API, stockage et services distants ;
 - **VE-SCOPE Supervisor** : interface Web de supervision ;
-- **VE-SCOPE Mobile** : accès mobile, notamment via Bluetooth Low Energy ;
 - **VE-SCOPE Data** : historisation des mesures, sessions, alarmes et événements.
 
-## Première cible fonctionnelle
+## Acquisition réelle de la borne
 
-La V1 s'appuie sur un **PZEM-004T** raccordé à un **ESP32-S3** pour acquérir :
+La chaîne actuellement utilisée sur la borne repose sur un **PZEM-004T** raccordé à un **ESP32** pour acquérir les mesures réelles suivantes :
 
 - tension AC ;
 - courant AC ;
@@ -26,12 +25,14 @@ La V1 s'appuie sur un **PZEM-004T** raccordé à un **ESP32-S3** pour acquérir 
 - fréquence ;
 - énergie active.
 
-Les données doivent être accessibles simultanément par :
+Les données sont accessibles par :
 
 - USB série ;
 - Wi-Fi local ;
-- MQTT pour la supervision distante ;
+- HTTPS/MQTT pour la supervision distante ;
 - Bluetooth Low Energy.
+
+La supervision distante utilise les données réelles émises par **VE-SCOPE Core**. Le simulateur utilisé pendant la phase de développement initiale a été retiré de l'architecture de production.
 
 Le système sera ensuite étendu aux données du **JK BMS**, au futur chargeur rapide DC et à l'architecture énergétique hybride réseau / photovoltaïque / stockage.
 
@@ -39,21 +40,30 @@ Le système sera ensuite étendu aux données du **JK BMS**, au futur chargeur r
 
 ```text
 borne-de-recharge-ve/
-├── .github/workflows/ci.yml
+├── backend/
+│   ├── vescope-hub/
+│   └── vescope-ingest/
 ├── docs/
-│   ├── architecture/overview.md
-│   └── protocols/mqtt-v1.md
+├── firmware/
+│   └── vescope-core-esp32/
 ├── frontend/
 │   └── vescope-supervisor/
-└── simulator/
-    └── vescope-core/
+├── infrastructure/
+└── scripts/
 ```
 
-Les dossiers `hardware`, `firmware`, `backend`, `infrastructure`, `mobile`, `tools` et `tests` seront ajoutés au fur et à mesure que leurs premiers fichiers réels seront créés. Aucun dossier vide artificiel n'est conservé dans Git.
+## VE-SCOPE Supervisor
 
-## Démarrage de VE-SCOPE Supervisor
+Le Supervisor consomme les API du Hub et affiche les données réelles de la borne :
 
-Prérequis : Node.js LTS.
+- tableau de bord ;
+- mesures AC ;
+- sessions de recharge ;
+- alarmes ;
+- diagnostic ;
+- historique et exports.
+
+Démarrage local du frontend :
 
 ```bash
 cd frontend/vescope-supervisor
@@ -61,36 +71,7 @@ npm install
 npm run dev
 ```
 
-La V0 démarre en **mode simulation intégré** et permet déjà de parcourir :
-
-- le tableau de bord ;
-- les mesures AC ;
-- les sessions ;
-- les alarmes ;
-- le diagnostic.
-
-## Simulateur VE-SCOPE Core
-
-```bash
-cd simulator/vescope-core
-python -m venv .venv
-```
-
-Sous Windows PowerShell :
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python simulator.py --stdout-only
-```
-
-Pour publier vers un broker MQTT :
-
-```bash
-python simulator.py --broker localhost --port 1883
-```
-
-Le contrat MQTT de référence est documenté dans `docs/protocols/mqtt-v1.md`.
+Le contrat de données est documenté dans `docs/protocols/mqtt-v1.md`.
 
 ## Équipe de stage
 
@@ -102,16 +83,14 @@ Le contrat MQTT de référence est documenté dans `docs/protocols/mqtt-v1.md`.
 
 - ne jamais committer de mots de passe, certificats privés ou secrets MQTT ;
 - développer les nouvelles fonctions sur des branches dédiées ;
-- faire passer la CI avant intégration dans `main` ;
+- valider localement les builds et tests avant déploiement ;
 - conserver la compatibilité avec le contrat de données versionné ;
 - séparer les fonctions de supervision des fonctions de sécurité électrique.
 
 ## Roadmap immédiate
 
-1. stabiliser la V0 de Supervisor ;
-2. connecter Supervisor à une passerelle MQTT/API réelle ;
-3. développer VE-SCOPE Core sur ESP32-S3 + PZEM-004T ;
-4. intégrer la supervision locale autonome ;
-5. enregistrer les sessions et alarmes ;
-6. ajouter les données JK BMS ;
-7. préparer le futur chargeur rapide et l'EMS hybride.
+1. stabiliser VE-SCOPE Core et la conservation durable des données terrain ;
+2. fiabiliser la continuité des sessions lors des coupures réseau et redémarrages ;
+3. finaliser VE-SCOPE Supervisor sur les données réelles ;
+4. intégrer les données JK BMS ;
+5. préparer le futur chargeur rapide et l'EMS hybride.
