@@ -12,7 +12,7 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-export default function AlertsPage({ items, hubLive }: { items: AlertItem[]; hubLive: boolean }) {
+export default function AlertsPage({ items }: { items: AlertItem[] }) {
   const [severity, setSeverity] = useState<SeverityFilter>('ALL');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL');
   const [query, setQuery] = useState('');
@@ -98,10 +98,6 @@ export default function AlertsPage({ items, hubLive }: { items: AlertItem[]; hub
             </div>
           ))}
         </div>
-
-        <p className="note">
-          {hubLive ? 'Le journal combine les événements temps réel du Hub et l’historique PostgreSQL.' : 'Le temps réel est indisponible ; les événements affichés proviennent de l’historique PostgreSQL chargé.'} Les transitions STALE du firmware legacy archivées lors du nettoyage ne sont pas réinjectées dans ce journal de production.
-        </p>
       </section>
     </div>
   );
