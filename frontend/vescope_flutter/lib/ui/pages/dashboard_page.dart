@@ -306,7 +306,11 @@ class _SparklinePainter extends CustomPainter {
       final x = i / (values.length - 1) * size.width;
       final normalized = (values[i] - minValue) / span;
       final y = size.height * (0.85 - normalized * 0.7);
-      if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
     canvas.drawPath(path, Paint()..color = const Color(0xFF5AB0FF)..style = PaintingStyle.stroke..strokeWidth = 2);
   }
