@@ -46,7 +46,7 @@ class MeasurementsPage extends StatelessWidget {
       _MeasureRowData('Courant efficace', telemetry.currentA.toStringAsFixed(3), 'A', source),
       _MeasureRowData('Puissance active', telemetry.activePowerW.toStringAsFixed(1), 'W', source),
       _MeasureRowData('Puissance apparente', telemetry.apparentPowerVa.toStringAsFixed(1), 'VA', 'Calculée depuis la mesure réelle'),
-      _MeasureRowData('Puissance non active', telemetry.nonActivePowerVarEst.toStringAsFixed(1), 'var', 'Estimée depuis S et P'),
+      _MeasureRowData('Puissance réactive', telemetry.nonActivePowerVarEst.toStringAsFixed(1), 'var', 'Estimée depuis S et P'),
       _MeasureRowData('Facteur de puissance', telemetry.powerFactor.toStringAsFixed(3), '—', source),
       _MeasureRowData('Fréquence', telemetry.frequencyHz.toStringAsFixed(3), 'Hz', source),
       _MeasureRowData('Énergie totale compteur', (telemetry.energyTotalWh / 1000).toStringAsFixed(3), 'kWh', source),
@@ -83,7 +83,7 @@ class MeasurementsPage extends StatelessWidget {
               const SizedBox(height: 12),
               _InfoNote(
                 'Horodatage de la mesure : ${_dateTime(telemetry.timestamp)}. '
-                'La puissance non active est une estimation dérivée de la puissance apparente S et de la puissance active P.',
+                'La puissance réactive affichée est une estimation dérivée de la puissance apparente S et de la puissance active P.',
               ),
             ],
           ),
