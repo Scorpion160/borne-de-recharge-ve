@@ -70,10 +70,12 @@ class _SessionsPageState extends State<SessionsPage> {
       }
     }
     selected ??= rows.isEmpty ? null : rows.first;
-    final wide = MediaQuery.sizeOf(context).width >= 1100;
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final wide = viewportWidth >= 1100;
+    final compact = viewportWidth < 600;
 
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(compact ? 16 : 24),
       children: [
         _panel(
           context,
@@ -96,37 +98,45 @@ class _SessionsPageState extends State<SessionsPage> {
                 ],
               ),
               const SizedBox(height: 20),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SizedBox(
-                    width: wide ? 520 : 340,
-                    child: TextField(
-                      controller: _search,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Rechercher une session',
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 680;
+                  final searchWidth = narrow ? constraints.maxWidth : (wide ? 520.0 : 340.0);
+                  final stateWidth = narrow ? constraints.maxWidth : 220.0;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: searchWidth,
+                        child: TextField(
+                          controller: _search,
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search),
+                            hintText: 'Rechercher une session',
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 220,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _state,
-                      items: const [
-                        DropdownMenuItem(value: 'ALL', child: Text('Tous les états')),
-                        DropdownMenuItem(value: 'CHARGING', child: Text('En charge')),
-                        DropdownMenuItem(value: 'COMPLETE', child: Text('Terminées')),
-                        DropdownMenuItem(value: 'INTERRUPTED', child: Text('Interrompues')),
-                        DropdownMenuItem(value: 'FAULT', child: Text('Défaut')),
-                      ],
-                      onChanged: (value) => setState(() => _state = value ?? 'ALL'),
-                    ),
-                  ),
-                  Text('${rows.length} session${rows.length > 1 ? 's' : ''}', style: const TextStyle(color: Color(0xFF7D91A8))),
-                ],
+                      SizedBox(
+                        width: stateWidth,
+                        child: DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue: _state,
+                          items: const [
+                            DropdownMenuItem(value: 'ALL', child: Text('Tous les états')),
+                            DropdownMenuItem(value: 'CHARGING', child: Text('En charge')),
+                            DropdownMenuItem(value: 'COMPLETE', child: Text('Terminées')),
+                            DropdownMenuItem(value: 'INTERRUPTED', child: Text('Interrompues')),
+                            DropdownMenuItem(value: 'FAULT', child: Text('Défaut')),
+                          ],
+                          onChanged: (value) => setState(() => _state = value ?? 'ALL'),
+                        ),
+                      ),
+                      Text('${rows.length} session${rows.length > 1 ? 's' : ''}', style: const TextStyle(color: Color(0xFF7D91A8))),
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -176,13 +186,35 @@ class _SessionsPageState extends State<SessionsPage> {
                       border: Border.all(color: selected ? const Color(0xFF2E6D9F) : Theme.of(context).dividerColor),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(flex: 3, child: Text(item.sessionId, style: const TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(child: Text(_duration(item.durationS))),
-                        Expanded(child: Text('${((item.energyWh ?? 0) / 1000).toStringAsFixed(3)} kWh')),
-                        Expanded(child: Text('${((item.maxPowerW ?? 0) / 1000).toStringAsFixed(2)} kW')),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (constraints.maxWidth < 560) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(item.sessionId, style: const TextStyle(fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 8,
+                                children: [
+                                  _sessionMeta(Icons.timer_outlined, _duration(item.durationS)),
+                                  _sessionMeta(Icons.storage_outlined, '${((item.energyWh ?? 0) / 1000).toStringAsFixed(3)} kWh'),
+                                  _sessionMeta(Icons.bolt_outlined, '${((item.maxPowerW ?? 0) / 1000).toStringAsFixed(2)} kW'),
+                                ],
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
+                          children: [
+                            Expanded(flex: 3, child: Text(item.sessionId, style: const TextStyle(fontWeight: FontWeight.w600))),
+                            Expanded(child: Text(_duration(item.durationS))),
+                            Expanded(child: Text('${((item.energyWh ?? 0) / 1000).toStringAsFixed(3)} kWh')),
+                            Expanded(child: Text('${((item.maxPowerW ?? 0) / 1000).toStringAsFixed(2)} kW')),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 );
@@ -246,6 +278,15 @@ Widget _badge(String label) => Container(
       child: Text(label, style: const TextStyle(color: Color(0xFF75D69E), fontWeight: FontWeight.w700, fontSize: 12)),
     );
 
+Widget _sessionMeta(IconData icon, String text) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: const Color(0xFF58B0FF)),
+        const SizedBox(width: 5),
+        Text(text, style: const TextStyle(color: Color(0xFF9AAABD), fontSize: 12)),
+      ],
+    );
+
 Widget _detail(String label, String value, IconData icon) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
@@ -253,7 +294,8 @@ Widget _detail(String label, String value, IconData icon) => Padding(
           Icon(icon, size: 18, color: const Color(0xFF58B0FF)),
           const SizedBox(width: 10),
           Expanded(child: Text(label, style: const TextStyle(color: Color(0xFF8297AE)))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(width: 10),
+          Flexible(child: Text(value, textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w700))),
         ],
       ),
     );
