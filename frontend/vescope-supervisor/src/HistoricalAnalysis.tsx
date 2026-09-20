@@ -28,10 +28,6 @@ function numeric(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function metricValues(points: TelemetrySeriesPoint[], key: MetricKey): number[] {
-  return points.map((point) => point[key]).filter(numeric);
-}
-
 function weightedAverage(points: TelemetrySeriesPoint[], key: MetricKey): number | null {
   let weightedSum = 0;
   let weight = 0;
@@ -285,7 +281,7 @@ export default function HistoricalAnalysis() {
         </div>
         <div className="history-chart-head">
           <div>
-            <span className="eyebrow">COURBE AGRÉGÉE · TROUS NON RELIÉS</span>
+            <span className="eyebrow">COURBE AGRÉGÉE</span>
             <h2>{config.label}</h2>
           </div>
           <div className="history-current-stat">
@@ -298,7 +294,7 @@ export default function HistoricalAnalysis() {
           : <SeriesChart points={points} metric={metric} bucketSeconds={bucketSeconds} />}
         <div className="history-meta">
           <span>Fenêtre d’agrégation : {bucketSeconds ? `${bucketSeconds} s` : '—'}</span>
-          <span>{points.length} points affichés · {stats.gaps} trou{stats.gaps > 1 ? 's' : ''} visible{stats.gaps > 1 ? 's' : ''}</span>
+          <span>{points.length} points · {stats.gaps} interruption{stats.gaps > 1 ? 's' : ''}</span>
         </div>
       </section>
 
@@ -307,13 +303,6 @@ export default function HistoricalAnalysis() {
         <article className="history-kpi"><span>Tension max.</span><strong>{valueOrDash(stats.maxVoltageV, 1, 'V')}</strong></article>
         <article className="history-kpi"><span>Courant max.</span><strong>{valueOrDash(stats.maxCurrentA, 2, 'A')}</strong></article>
         <article className="history-kpi"><span>PF moyen pondéré</span><strong>{valueOrDash(stats.averagePowerFactor, 3)}</strong></article>
-      </section>
-
-      <section className="panel history-method-note">
-        <span className="eyebrow">INTERPRÉTATION</span>
-        <p>
-          Cette page sert au suivi opérationnel et peut inclure des données LEGACY ou VALIDATION. Les moyennes sont pondérées par le nombre de mesures sources et les interruptions temporelles ne sont plus reliées artificiellement sur la courbe. Pour le jumeau numérique, utilisez exclusivement l’export TRUSTED de la page Données.
-        </p>
       </section>
     </div>
   );
