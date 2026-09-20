@@ -1,11 +1,20 @@
 import {
   pushHubAlert,
   setHubConnected,
+  setHubDiagnostics,
   setHubSession,
   setHubStationState,
+  setHubStatus,
   setHubTelemetry,
 } from './dataBridge';
-import type { AcTelemetry, AlertItem, LiveSession, StationState } from './types';
+import type {
+  AcTelemetry,
+  AlertItem,
+  CoreDiagnostics,
+  CoreStatus,
+  LiveSession,
+  StationState,
+} from './types';
 
 function buildWebSocketUrl(): string {
   const configured = import.meta.env.VITE_VESCOPE_HUB_WS as string | undefined;
@@ -23,11 +32,14 @@ function applySnapshot(snapshot: Record<string, { payload?: unknown }> | undefin
 
   const telemetry = snapshot['telemetry/ac']?.payload as AcTelemetry | undefined;
   const session = snapshot['session/live']?.payload as LiveSession | undefined;
-  const status = snapshot.status?.payload as { state?: StationState } | undefined;
+  const status = snapshot.status?.payload as CoreStatus | undefined;
+  const diagnostics = snapshot.diagnostics?.payload as CoreDiagnostics | undefined;
 
   if (telemetry) setHubTelemetry(telemetry);
   if (session) setHubSession(session);
+  if (status) setHubStatus(status);
   if (status?.state) setHubStationState(status.state);
+  if (diagnostics) setHubDiagnostics(diagnostics);
 }
 
 function normalizeAlert(data: Record<string, unknown>): AlertItem {
@@ -39,6 +51,9 @@ function normalizeAlert(data: Record<string, unknown>): AlertItem {
     severity: (data.severity ?? 'INFO') as AlertItem['severity'],
     code,
     message: String(data.message ?? 'Événement reçu de VE-SCOPE Hub.'),
+    source: data.source ? String(data.source) : undefined,
+    value: typeof data.value === 'number' ? data.value : undefined,
+    threshold: typeof data.threshold === 'number' ? data.threshold : undefined,
   };
 }
 
@@ -77,8 +92,15 @@ export function startHubClient(): () => void {
           return;
         }
 
-        if (message.event === 'status_update' && message.data?.state) {
-          setHubStationState(message.data.state as StationState);
+        if (message.event === 'status_update' && message.data) {
+          const status = message.data as CoreStatus;
+          setHubStatus(status);
+          if (status.state) setHubStationState(status.state as StationState);
+          return;
+        }
+
+        if (message.event === 'diagnostics' && message.data) {
+          setHubDiagnostics(message.data as CoreDiagnostics);
           return;
         }
 
