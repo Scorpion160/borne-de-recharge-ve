@@ -34,9 +34,11 @@ import {
   isHubDataLive,
 } from './dataBridge';
 import {
+  fetchDeviceSettings,
   fetchHubHealth,
   fetchStoredEvents,
   fetchStoredSessions,
+  fetchTelemetrySeries,
   type StoredSession,
 } from './hubApi';
 import type {
@@ -71,7 +73,7 @@ const pageTitles: Record<Page, string> = {
   settings: 'Paramètres',
 };
 
-const LIVE_MAX_AGE_MS = 25_000;
+const DEFAULT_LIVE_MAX_AGE_MS = 180_000;
 const DIAGNOSTICS_MAX_AGE_MS = 45_000;
 
 function formatTime(iso: string): string {
@@ -119,15 +121,17 @@ export default function App() {
   const [stationState, setStationState] = useState<StationState>('OFFLINE');
   const [eventItems, setEventItems] = useState<AlertItem[]>([]);
   const [powerHistory, setPowerHistory] = useState<number[]>([]);
+  const [liveMaxAgeMs, setLiveMaxAgeMs] = useState(DEFAULT_LIVE_MAX_AGE_MS);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const connected = isHubConnected();
-      const live = isHubDataLive(LIVE_MAX_AGE_MS);
-      const hubTelemetry = getFreshHubTelemetry(LIVE_MAX_AGE_MS);
-      const hubSession = getFreshHubSession(LIVE_MAX_AGE_MS);
-      const hubStatus = getFreshHubStatus(DIAGNOSTICS_MAX_AGE_MS);
-      const hubDiagnostics = getFreshHubDiagnostics(DIAGNOSTICS_MAX_AGE_MS);
+      const live = isHubDataLive(liveMaxAgeMs);
+      const hubTelemetry = getFreshHubTelemetry(liveMaxAgeMs);
+      const hubSession = getFreshHubSession(liveMaxAgeMs);
+      const diagnosticsMaxAgeMs = Math.max(DIAGNOSTICS_MAX_AGE_MS, liveMaxAgeMs);
+      const hubStatus = getFreshHubStatus(diagnosticsMaxAgeMs);
+      const hubDiagnostics = getFreshHubDiagnostics(diagnosticsMaxAgeMs);
       const state = connected ? getHubStationState() : 'OFFLINE';
 
       setHubOnline(connected);
@@ -159,18 +163,33 @@ export default function App() {
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [liveMaxAgeMs]);
 
   useEffect(() => {
     let mounted = true;
     const refreshHistory = async () => {
-      const [health, sessions, events] = await Promise.all([
-        fetchHubHealth(), fetchStoredSessions(100), fetchStoredEvents(200),
+      const [health, sessions, events, settings, recentSeries] = await Promise.all([
+        fetchHubHealth(),
+        fetchStoredSessions(100),
+        fetchStoredEvents(200),
+        fetchDeviceSettings(),
+        fetchTelemetrySeries('1m'),
       ]);
       if (!mounted) return;
       setDatabaseOnline(Boolean(health?.database_connected));
       setStoredSessions(sessions);
       setEventItems(mergeEvents(getHubAlerts(), events));
+
+      const staleSeconds = settings?.alarm_thresholds.stale_after_s;
+      if (typeof staleSeconds === 'number' && Number.isFinite(staleSeconds)) {
+        setLiveMaxAgeMs(Math.max(5_000, Math.min(300_000, staleSeconds * 1000)));
+      }
+
+      const recentPowers = (recentSeries?.items ?? [])
+        .map((item) => item.active_power_w)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        .slice(-60);
+      if (recentPowers.length >= 2) setPowerHistory(recentPowers);
     };
     void refreshHistory();
     const timer = window.setInterval(() => void refreshHistory(), 5000);
@@ -214,7 +233,9 @@ export default function App() {
   })();
 
   const sourceLabel = hubLive ? 'TEMPS RÉEL' : telemetry ? 'DERNIÈRE MESURE RÉELLE' : 'EN ATTENTE';
-  const pzemOnline = coreStatus?.pzem_online ?? diagnostics?.pzem_online ?? Boolean(telemetry);
+  const pzemOnline = hubLive && telemetry
+    ? true
+    : (coreStatus?.pzem_online ?? diagnostics?.pzem_online ?? false);
   const bleLabel = diagnostics
     ? diagnostics.ble_connected ? 'CONNECTÉ' : 'PRÊT'
     : '—';
@@ -236,6 +257,9 @@ export default function App() {
               </button>
             );
           })}
+          <button className={`mobile-settings-nav ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>
+            <Settings size={18} /><span>Paramètres</span>
+          </button>
         </nav>
 
         <div className="sidebar__future">
