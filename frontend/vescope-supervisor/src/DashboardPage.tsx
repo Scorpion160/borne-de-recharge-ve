@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { Activity, Bluetooth, Clock3, Database, Radio, Wifi, Zap } from 'lucide-react';
 import type { AcTelemetry, CoreDiagnostics, CoreStatus, LiveSession, StationState } from './types';
 
+type LinkState = 'online' | 'offline' | 'planned' | 'warning' | 'ready';
+
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -57,7 +59,7 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-function LinkBadge({ label, state, detail }: { label: string; state: 'online' | 'offline' | 'planned'; detail?: string }) {
+function LinkBadge({ label, state, detail }: { label: string; state: LinkState; detail?: string }) {
   return (
     <div className={`link-badge link-badge--${state}`} title={detail}>
       <span className="link-badge__dot" /><span>{label}</span>{detail && <small>{detail}</small>}
@@ -90,12 +92,19 @@ export default function DashboardPage({
       : `Dernière mesure réelle · ${formatTime(telemetry.timestamp)}`
     : 'En attente des données de la borne';
 
-  // Une télémétrie AC récente est une preuve directe qu'une acquisition PZEM vient d'aboutir.
-  // Cela évite qu'un ancien indicateur pzem_online=false masque une mesure réellement reçue.
   const pzemOnline = hubLive && telemetry
     ? true
     : (status?.pzem_online ?? diagnostics?.pzem_online ?? false);
   const wifiOnline = status?.transport_wifi ?? diagnostics?.wifi_connected;
+  const wifiRssi = diagnostics?.wifi_rssi_dbm;
+  const wifiWeak = wifiOnline && wifiRssi !== undefined && wifiRssi <= -85;
+  const wifiState: LinkState = wifiOnline ? (wifiWeak ? 'warning' : 'online') : 'offline';
+  const wifiDetail = wifiRssi !== undefined
+    ? `${wifiRssi} dBm${wifiWeak ? ' · signal faible' : ''}`
+    : 'État remonté par le Core';
+  const bleState: LinkState = diagnostics
+    ? (diagnostics.ble_connected ? 'online' : 'ready')
+    : 'planned';
 
   return (
     <>
@@ -139,9 +148,9 @@ export default function DashboardPage({
           <div className="links-stack">
             <LinkBadge label="VE-SCOPE Hub" state={hubOnline ? 'online' : 'offline'} detail={hubOnline ? 'WebSocket connecté' : 'Reconnexion automatique'} />
             <LinkBadge label="Télémétrie borne" state={hubLive ? 'online' : 'offline'} detail={hubLive ? 'Donnée réelle récente' : 'Aucune donnée récente'} />
-            <LinkBadge label="Wi-Fi Core" state={wifiOnline ? 'online' : 'offline'} detail={diagnostics?.wifi_rssi_dbm !== undefined ? `${diagnostics.wifi_rssi_dbm} dBm` : 'État remonté par le Core'} />
+            <LinkBadge label="Wi-Fi Core" state={wifiState} detail={wifiDetail} />
             <LinkBadge label="PZEM" state={pzemOnline ? 'online' : 'offline'} detail={pzemOnline ? (hubLive ? 'Acquisition confirmée par télémétrie récente' : 'Acquisition réelle') : 'Aucune mesure récente'} />
-            <LinkBadge label="Bluetooth" state={diagnostics ? 'online' : 'planned'} detail={diagnostics ? (diagnostics.ble_connected ? 'Client connecté' : 'Service local disponible') : 'Disponible avec Core 0.2.12'} />
+            <LinkBadge label="Bluetooth" state={bleState} detail={diagnostics ? (diagnostics.ble_connected ? 'Client connecté' : 'Service local disponible') : 'Disponible avec Core 0.2.12'} />
             <LinkBadge label="BMS" state="planned" detail="V1.1" />
           </div>
         </article>
