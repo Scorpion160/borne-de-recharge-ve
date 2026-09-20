@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from alarms import AlarmEngine
 from analytics import telemetry_series
-from exports import events_csv, sessions_csv, telemetry_csv
+from exports import events_csv, sessions_csv, telemetry_csv, trusted_telemetry_csv
 from storage import Database
 
 MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
@@ -224,7 +224,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VE-SCOPE Hub",
-    version="0.6.0",
+    version="0.6.1",
     lifespan=lifespan,
     default_response_class=Utf8JsonResponse,
 )
@@ -241,7 +241,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "vescope-hub",
-        "version": "0.6.0",
+        "version": "0.6.1",
         "mqtt_connected": bridge.connected,
         "mqtt_last_message_at": bridge.last_message_at,
         "database_connected": database.available,
@@ -326,6 +326,23 @@ async def export_telemetry_csv(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     filename = f"vescope_{device_id}_telemetry_{range_key}.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/devices/{device_id}/exports/telemetry-trusted.csv")
+async def export_trusted_telemetry_csv(
+    device_id: str,
+    range_key: str = Query(default="24h", alias="range", pattern="^(1h|24h|7d|30d)$"),
+) -> Response:
+    try:
+        content = await trusted_telemetry_csv(database, device_id, range_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    filename = f"vescope_{device_id}_telemetry_trusted_{range_key}.csv"
     return Response(
         content=content.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
