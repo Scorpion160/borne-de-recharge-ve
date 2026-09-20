@@ -146,17 +146,17 @@ class _DataPageState extends State<DataPage> {
                 style: TextStyle(color: Color(0xFF8EA4BC), height: 1.5),
               );
               if (compact) {
-                return const Column(
+                return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [heading, SizedBox(height: 16), explanation],
+                  children: [heading, const SizedBox(height: 16), explanation],
                 );
               }
-              return const Row(
+              return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(flex: 2, child: heading),
-                  SizedBox(width: 24),
-                  Expanded(flex: 4, child: explanation),
+                  const SizedBox(width: 24),
+                  const Expanded(flex: 4, child: explanation),
                 ],
               );
             },
