@@ -84,9 +84,10 @@ class _HistoricalPageState extends State<HistoricalPage> {
     final bucketSeconds = series?.bucketSeconds ?? 0;
     final stats = _Stats.from(points, bucketSeconds);
     final selectedAverage = _weightedAverage(points, _metric);
+    final compact = MediaQuery.sizeOf(context).width < 600;
 
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(compact ? 16 : 24),
       children: [
         _Panel(
           child: Column(
@@ -159,31 +160,33 @@ class _HistoricalPageState extends State<HistoricalPage> {
                 }).toList(),
               ),
               const SizedBox(height: 22),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('COURBE AGRÉGÉE', style: _eyebrow),
-                        const SizedBox(height: 5),
-                        Text(_metric.label, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 300;
+                  final title = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('COURBE AGRÉGÉE', style: _eyebrow),
+                      const SizedBox(height: 5),
+                      Text(_metric.label, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+                    ],
+                  );
+                  final average = Column(
+                    crossAxisAlignment: narrow ? CrossAxisAlignment.start : CrossAxisAlignment.end,
                     children: [
                       const Text('Moyenne pondérée', style: TextStyle(color: Color(0xFF6F849A), fontSize: 12)),
                       const SizedBox(height: 4),
-                      Text(
-                        _formatScaled(selectedAverage, _metric),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                      ),
+                      Text(_formatScaled(selectedAverage, _metric), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                     ],
-                  ),
-                ],
+                  );
+                  if (narrow) {
+                    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [title, const SizedBox(height: 12), average]);
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [Expanded(child: title), const SizedBox(width: 12), average],
+                  );
+                },
               ),
               const SizedBox(height: 20),
               if (_error && points.isEmpty)
@@ -198,7 +201,7 @@ class _HistoricalPageState extends State<HistoricalPage> {
                 )
               else
                 SizedBox(
-                  height: 260,
+                  height: compact ? 230 : 260,
                   width: double.infinity,
                   child: _SeriesChart(points: points, metric: _metric, bucketSeconds: bucketSeconds),
                 ),
@@ -237,14 +240,20 @@ class _KpiGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 1000 ? 4 : constraints.maxWidth >= 560 ? 2 : 1;
-        return GridView.count(
-          crossAxisCount: columns,
+        return GridView.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            mainAxisExtent: columns == 1 ? 124 : 148,
+          ),
+          itemCount: items.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 14,
-          mainAxisSpacing: 14,
-          childAspectRatio: columns == 1 ? 3.2 : 2.15,
-          children: items.map((item) => _KpiCard(icon: item.icon, label: item.label, value: item.value)).toList(),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return _KpiCard(icon: item.icon, label: item.label, value: item.value);
+          },
         );
       },
     );
@@ -266,14 +275,17 @@ class _SecondaryKpis extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 900 ? 4 : constraints.maxWidth >= 500 ? 2 : 1;
-        return GridView.count(
-          crossAxisCount: columns,
+        return GridView.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            mainAxisExtent: columns == 1 ? 104 : 118,
+          ),
+          itemCount: items.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 14,
-          mainAxisSpacing: 14,
-          childAspectRatio: columns == 1 ? 3.5 : 2.4,
-          children: items.map((item) => _KpiCard(label: item.$1, value: item.$2)).toList(),
+          itemBuilder: (context, index) => _KpiCard(label: items[index].$1, value: items[index].$2),
         );
       },
     );
@@ -302,7 +314,7 @@ class _KpiCard extends StatelessWidget {
           Icon(icon, color: const Color(0xFF59AEFE), size: 20),
           const SizedBox(height: 7),
         ],
-        Text(label, style: const TextStyle(color: Color(0xFF7E93A9), fontSize: 12)),
+        Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF7E93A9), fontSize: 12)),
         const SizedBox(height: 8),
         FittedBox(
           fit: BoxFit.scaleDown,
@@ -353,8 +365,9 @@ class _SeriesChart extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_shortDateTime(first), style: const TextStyle(color: Color(0xFF6F849A), fontSize: 11)),
-            Text(_shortDateTime(last), style: const TextStyle(color: Color(0xFF6F849A), fontSize: 11)),
+            Flexible(child: Text(_shortDateTime(first), style: const TextStyle(color: Color(0xFF6F849A), fontSize: 11))),
+            const SizedBox(width: 8),
+            Flexible(child: Text(_shortDateTime(last), textAlign: TextAlign.right, style: const TextStyle(color: Color(0xFF6F849A), fontSize: 11))),
           ],
         ),
       ],
