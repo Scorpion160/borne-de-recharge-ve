@@ -100,10 +100,27 @@ function stationStateLabel(state: StationState): string {
   return labels[state];
 }
 
+function eventFingerprint(item: AlertItem): string {
+  const timestampMs = new Date(item.timestamp).getTime();
+  return [
+    item.code,
+    item.source ?? '',
+    Number.isFinite(timestampMs) ? timestampMs : item.timestamp,
+    item.value ?? '',
+    item.threshold ?? '',
+  ].join('|');
+}
+
 function mergeEvents(...groups: AlertItem[][]): AlertItem[] {
-  return groups
-    .flat()
-    .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+  const merged = groups.flat();
+  const seen = new Set<string>();
+  return merged
+    .filter((item) => {
+      const fingerprint = eventFingerprint(item);
+      if (seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    })
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 200);
 }
@@ -204,7 +221,7 @@ export default function App() {
     if (page === 'history') return <HistoricalAnalysis />;
     if (page === 'data') return <DataLoggerPage hubOnline={hubOnline} databaseOnline={databaseOnline} />;
     if (page === 'sessions') return <SessionsPage session={session} hubLive={hubLive} stored={storedSessions} />;
-    if (page === 'alerts') return <AlertsPage items={eventItems} hubLive={hubLive} />;
+    if (page === 'alerts') return <AlertsPage items={eventItems} />;
     if (page === 'diagnostics') {
       return (
         <DiagnosticsPage
