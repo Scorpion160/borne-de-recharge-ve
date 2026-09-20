@@ -11,6 +11,7 @@ abstract final class VescopeTheme {
     );
     return ThemeData(
       useMaterial3: true,
+      fontFamily: 'Arial',
       brightness: Brightness.dark,
       colorScheme: scheme.copyWith(
         surface: const Color(0xFF0D1928),
@@ -53,6 +54,7 @@ abstract final class VescopeTheme {
     final scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: Brightness.light);
     return ThemeData(
       useMaterial3: true,
+      fontFamily: 'Arial',
       colorScheme: scheme,
       scaffoldBackgroundColor: const Color(0xFFF3F6FA),
       cardColor: Colors.white,
