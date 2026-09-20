@@ -1,4 +1,4 @@
-import { Gauge, HardDrive, Radio, Server } from 'lucide-react';
+import { Database, Gauge, HardDrive, Radio, Server, Wifi } from 'lucide-react';
 import type { AcTelemetry, CoreDiagnostics, CoreStatus } from './types';
 
 type LinkState = 'online' | 'offline' | 'planned' | 'warning' | 'ready';
@@ -30,6 +30,13 @@ function bytesLabel(bytes: number | undefined): string {
   if (bytes === undefined) return '—';
   if (bytes < 1024) return `${bytes} o`;
   return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+function pzemErrorLabel(value: string | undefined): string {
+  if (!value) return 'Aucune';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'none' || normalized === 'null' || normalized === 'ok') return 'Aucune';
+  return value;
 }
 
 export default function DiagnosticsPage({
@@ -93,7 +100,7 @@ export default function DiagnosticsPage({
           <LinkBadge label="VE-SCOPE Hub" state={hubOnline ? 'online' : 'offline'} detail={hubOnline ? 'WebSocket connecté' : 'Hors ligne'} />
           <LinkBadge label="PostgreSQL" state={databaseOnline ? 'online' : 'offline'} detail={databaseOnline ? 'Historisation active' : 'Indisponible'} />
           <LinkBadge label="Wi-Fi borne" state={wifiState} detail={wifiDetail} />
-          <LinkBadge label="PZEM" state={pzemOnline ? 'online' : 'offline'} detail={pzemOnline ? (hubLive ? 'Acquisition confirmée' : 'Acquisition active') : 'Aucune mesure récente'} />
+          <LinkBadge label="PZEM" state={pzemOnline ? 'online' : 'offline'} detail={pzemOnline ? 'Acquisition confirmée' : 'Aucune mesure récente'} />
           <LinkBadge label="Bluetooth" state={bleState} detail={diagnostics ? (diagnostics.ble_connected ? 'Client connecté' : 'Service disponible') : 'État non disponible'} />
         </div>
         <dl className="detail-list">
@@ -116,7 +123,7 @@ export default function DiagnosticsPage({
           <div><dt>Lectures OK</dt><dd>{diagnostics?.pzem_reads_ok ?? '—'}</dd></div>
           <div><dt>Erreurs cumulées</dt><dd>{diagnostics?.pzem_errors ?? '—'}</dd></div>
           <div><dt>Erreurs consécutives</dt><dd>{diagnostics?.pzem_consecutive_errors ?? '—'}</dd></div>
-          <div><dt>Dernière erreur</dt><dd>{diagnostics?.pzem_last_error || 'Aucune erreur remontée'}</dd></div>
+          <div><dt>Dernière erreur</dt><dd>{pzemErrorLabel(diagnostics?.pzem_last_error)}</dd></div>
           <div><dt>Tension instantanée</dt><dd>{telemetry ? `${telemetry.voltage_v.toFixed(1)} V` : '—'}</dd></div>
           <div><dt>Courant instantané</dt><dd>{telemetry ? `${telemetry.current_a.toFixed(3)} A` : '—'}</dd></div>
         </dl>
@@ -129,8 +136,8 @@ export default function DiagnosticsPage({
         </div>
         {durableAvailable ? (
           <dl className="detail-list">
-            <div><dt>Stockage durable</dt><dd>{boolLabel(diagnostics?.durable_store_ok, 'OK', 'ERREUR')}</dd></div>
-            <div><dt>Erreur file</dt><dd>{boolLabel(diagnostics?.durable_queue_error, 'Oui', 'Non')}</dd></div>
+            <div><dt>Stockage local</dt><dd>{boolLabel(diagnostics?.durable_store_ok, 'Opérationnel', 'Erreur')}</dd></div>
+            <div><dt>Erreur de file</dt><dd>{boolLabel(diagnostics?.durable_queue_error, 'Oui', 'Non')}</dd></div>
             <div><dt>Mesures en attente</dt><dd>{diagnostics?.durable_pending_telemetry ?? status?.durable_pending ?? '—'}</dd></div>
             <div><dt>Volume en attente</dt><dd>{bytesLabel(diagnostics?.durable_pending_bytes)}</dd></div>
             <div><dt>Sessions en attente</dt><dd>{diagnostics?.durable_pending_summaries ?? '—'}</dd></div>
@@ -142,7 +149,7 @@ export default function DiagnosticsPage({
         )}
         <div className="links-stack">
           <LinkBadge label="Stockage serveur" state={databaseOnline ? 'online' : 'offline'} detail="PostgreSQL" />
-          <LinkBadge label="Stockage local borne" state={durableAvailable ? (diagnostics?.durable_store_ok === false ? 'offline' : 'online') : 'planned'} detail={durableAvailable ? 'File persistante active' : 'Non disponible'} />
+          <LinkBadge label="Stockage local borne" state={durableAvailable ? (diagnostics?.durable_store_ok === false ? 'offline' : 'online') : 'planned'} detail={durableAvailable ? 'Actif' : 'Non disponible'} />
         </div>
       </section>
     </div>
