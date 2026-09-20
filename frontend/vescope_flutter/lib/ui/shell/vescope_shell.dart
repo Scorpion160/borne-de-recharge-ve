@@ -4,9 +4,11 @@ import '../../state/vescope_controller.dart';
 import '../pages/alerts_page.dart';
 import '../pages/dashboard_page.dart';
 import '../pages/data_page.dart';
+import '../pages/diagnostics_page.dart';
 import '../pages/historical_page.dart';
 import '../pages/measurements_page.dart';
 import '../pages/sessions_page.dart';
+import '../pages/settings_page.dart';
 
 class VescopeShell extends StatefulWidget {
   const VescopeShell({
@@ -123,8 +125,12 @@ class _VescopeShellState extends State<VescopeShell> {
         return SessionsPage(controller: widget.controller);
       case 5:
         return const AlertsPage();
+      case 6:
+        return DiagnosticsPage(controller: widget.controller);
+      case 7:
+        return SettingsPage(controller: widget.controller);
       default:
-        return _MigrationPage(title: _items[_index].label, icon: _items[_index].icon);
+        return DashboardPage(controller: widget.controller);
     }
   }
 }
@@ -200,37 +206,5 @@ class _BrandMark extends StatelessWidget {
         height: 48,
         decoration: BoxDecoration(color: const Color(0xFF173C63), borderRadius: BorderRadius.circular(13)),
         child: const Icon(Icons.bolt_outlined, color: Color(0xFF8EC8FF)),
-      );
-}
-
-class _MigrationPage extends StatelessWidget {
-  const _MigrationPage({required this.title, required this.icon});
-  final String title;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Container(
-            width: 520,
-            padding: const EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              border: Border.all(color: Theme.of(context).dividerColor),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 38, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(height: 16),
-                Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                const Text('Migration Flutter en cours. Cette page sera raccordée au même VE-SCOPE Hub que la version Web de référence.', textAlign: TextAlign.center),
-              ],
-            ),
-          ),
-        ),
       );
 }
