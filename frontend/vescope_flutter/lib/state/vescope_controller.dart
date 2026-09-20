@@ -71,9 +71,6 @@ class VescopeController extends ChangeNotifier {
         onError: (_) => _handleSocketClosed(),
         onDone: _handleSocketClosed,
       );
-      hubConnected = true;
-      _retryDelay = const Duration(seconds: 1);
-      notifyListeners();
     } catch (_) {
       _handleSocketClosed();
     }
@@ -88,7 +85,7 @@ class VescopeController extends ChangeNotifier {
     _socket = null;
     _retryTimer?.cancel();
     _retryTimer = Timer(_retryDelay, _connectSocket);
-    final nextSeconds = (_retryDelay.inSeconds * 2).clamp(1, 15);
+    final nextSeconds = (_retryDelay.inSeconds * 2).clamp(1, 15).toInt();
     _retryDelay = Duration(seconds: nextSeconds);
   }
 
@@ -96,6 +93,8 @@ class VescopeController extends ChangeNotifier {
     try {
       final decoded = jsonDecode(raw.toString());
       if (decoded is! Map<String, dynamic>) return;
+      hubConnected = true;
+      _retryDelay = const Duration(seconds: 1);
       final event = decoded['event']?.toString();
       if (event == 'connected') {
         _applySnapshot(decoded['snapshot']);
