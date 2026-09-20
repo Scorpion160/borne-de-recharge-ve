@@ -62,7 +62,14 @@ class _SessionsPageState extends State<SessionsPage> {
   @override
   Widget build(BuildContext context) {
     final rows = _filtered;
-    final selected = rows.where((item) => item.sessionId == _selectedId).firstOrNull ?? (rows.isEmpty ? null : rows.first);
+    StoredSession? selected;
+    for (final item in rows) {
+      if (item.sessionId == _selectedId) {
+        selected = item;
+        break;
+      }
+    }
+    selected ??= rows.isEmpty ? null : rows.first;
     final wide = MediaQuery.sizeOf(context).width >= 1100;
 
     return ListView(
@@ -184,36 +191,39 @@ class _SessionsPageState extends State<SessionsPage> {
         ),
       );
 
-  Widget _detailPanel(StoredSession? selected) => _panel(
-        context,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('DÉTAIL SESSION', style: _eyebrowStyle),
-            const SizedBox(height: 7),
-            Text(selected?.sessionId ?? 'Aucune session', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            if (selected == null)
-              const Text('Aucune session réelle à afficher.')
-            else ...[
-              _badge(_stateLabel(selected.state)),
-              const SizedBox(height: 18),
-              _detail('Début', _dateTime(selected.startedAt), Icons.schedule_outlined),
-              _detail('Fin', _dateTime(selected.endedAt), Icons.schedule_outlined),
-              _detail('Énergie', '${((selected.energyWh ?? 0) / 1000).toStringAsFixed(3)} kWh', Icons.storage_outlined),
-              _detail('Puissance moy.', '${((selected.averagePowerW ?? 0) / 1000).toStringAsFixed(2)} kW', Icons.bolt_outlined),
-              _detail('Puissance max.', '${((selected.maxPowerW ?? 0) / 1000).toStringAsFixed(2)} kW', Icons.bolt_outlined),
-              _detail('Courant max.', '${(selected.maxCurrentA ?? 0).toStringAsFixed(2)} A', Icons.speed_outlined),
-              _detail('PF moyen', (selected.averagePowerFactor ?? 0).toStringAsFixed(3), Icons.speed_outlined),
-              _detail('Durée', _duration(selected.durationS), Icons.timer_outlined),
-              if (_endReason(selected.endReason) case final reason?) ...[
-                const SizedBox(height: 12),
-                Text('Cause de fin : $reason', style: const TextStyle(color: Color(0xFF8EA4BC))),
-              ],
+  Widget _detailPanel(StoredSession? selected) {
+    final endReason = selected == null ? null : _endReason(selected.endReason);
+    return _panel(
+      context,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('DÉTAIL SESSION', style: _eyebrowStyle),
+          const SizedBox(height: 7),
+          Text(selected?.sessionId ?? 'Aucune session', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 16),
+          if (selected == null)
+            const Text('Aucune session réelle à afficher.')
+          else ...[
+            _badge(_stateLabel(selected.state)),
+            const SizedBox(height: 18),
+            _detail('Début', _dateTime(selected.startedAt), Icons.schedule_outlined),
+            _detail('Fin', _dateTime(selected.endedAt), Icons.schedule_outlined),
+            _detail('Énergie', '${((selected.energyWh ?? 0) / 1000).toStringAsFixed(3)} kWh', Icons.storage_outlined),
+            _detail('Puissance moy.', '${((selected.averagePowerW ?? 0) / 1000).toStringAsFixed(2)} kW', Icons.bolt_outlined),
+            _detail('Puissance max.', '${((selected.maxPowerW ?? 0) / 1000).toStringAsFixed(2)} kW', Icons.bolt_outlined),
+            _detail('Courant max.', '${(selected.maxCurrentA ?? 0).toStringAsFixed(2)} A', Icons.speed_outlined),
+            _detail('PF moyen', (selected.averagePowerFactor ?? 0).toStringAsFixed(3), Icons.speed_outlined),
+            _detail('Durée', _duration(selected.durationS), Icons.timer_outlined),
+            if (endReason != null) ...[
+              const SizedBox(height: 12),
+              Text('Cause de fin : $endReason', style: const TextStyle(color: Color(0xFF8EA4BC))),
             ],
           ],
-        ),
-      );
+        ],
+      ),
+    );
+  }
 }
 
 Widget _panel(BuildContext context, {required Widget child}) => Container(
@@ -289,7 +299,3 @@ const _eyebrowStyle = TextStyle(
   fontWeight: FontWeight.w700,
   letterSpacing: 1.7,
 );
-
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
-}
