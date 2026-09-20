@@ -1,4 +1,4 @@
-import { Fingerprint, Radio, ShieldCheck } from 'lucide-react';
+import { Fingerprint, Radio } from 'lucide-react';
 import type { AcTelemetry } from './types';
 
 function qualityClass(quality: string): string {
@@ -75,11 +75,6 @@ export default function MeasurementsPage({ telemetry, hubLive }: { telemetry: Ac
             <div><dt>Session associée</dt><dd>{telemetry.session_id ?? 'Aucune'}</dd></div>
             <div><dt>Qualité déclarée</dt><dd>{telemetry.quality}</dd></div>
           </dl>
-        </article>
-
-        <article className="panel measurement-provenance-card measurement-provenance-card--wide">
-          <div className="measurement-provenance-card__head"><ShieldCheck size={18} /><div><span className="eyebrow">USAGE DES DONNÉES</span><h3>Mesure réelle ne signifie pas automatiquement TRUSTED</h3></div></div>
-          <p className="note measurement-trust-note">Les valeurs affichées ici proviennent de la borne réelle. Les données 0.2.11 restent classées LEGACY et les futurs boots 0.2.12 restent en VALIDATION jusqu’à approbation terrain explicite. Le dataset scientifique de référence est disponible uniquement via l’export TRUSTED.</p>
         </article>
       </section>
     </div>
