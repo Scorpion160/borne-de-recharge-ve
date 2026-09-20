@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../../models/operational_models.dart';
+import '../../models/settings_models.dart';
 import '../../models/telemetry_series.dart';
 import '../../models/vescope_models.dart';
 
@@ -85,6 +86,36 @@ class HubApi {
     } catch (_) {
       return const [];
     }
+  }
+
+  Future<DeviceSettings?> fetchDeviceSettings() async {
+    try {
+      final response = await http.get(
+        AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/settings'),
+        headers: const {'Accept': 'application/json'},
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+      return DeviceSettings.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<DeviceSettings> saveDeviceSettings(AlarmThresholds thresholds) async {
+    final response = await http.put(
+      AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/settings'),
+      headers: const {'Accept': 'application/json', 'Content-Type': 'application/json'},
+      body: jsonEncode(thresholds.toJson()),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      var message = 'Erreur HTTP ${response.statusCode}';
+      try {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        message = payload['detail']?.toString() ?? message;
+      } catch (_) {}
+      throw Exception(message);
+    }
+    return DeviceSettings.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Uri telemetryCsvUri(String range) => AppConfig.api(
