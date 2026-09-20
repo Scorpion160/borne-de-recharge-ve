@@ -65,12 +65,23 @@ class VescopeController extends ChangeNotifier {
     if (_disposed) return;
     _retryTimer?.cancel();
     try {
-      _socket = WebSocketChannel.connect(AppConfig.websocketUri);
-      _socketSubscription = _socket!.stream.listen(
+      final channel = WebSocketChannel.connect(AppConfig.websocketUri);
+      _socket = channel;
+      _socketSubscription = channel.stream.listen(
         _onSocketMessage,
         onError: (_) => _handleSocketClosed(),
         onDone: _handleSocketClosed,
       );
+
+      // WebSocketChannel expose aussi la phase de handshake via ready. Sur le
+      // Web, une connexion refusée peut sinon remonter comme Future non gérée
+      // en plus de l'erreur du stream. On absorbe ce doublon et on laisse le
+      // mécanisme de reconnexion traiter l'échec proprement.
+      unawaited(channel.ready.catchError((Object _) {
+        if (!_disposed && identical(_socket, channel)) {
+          _handleSocketClosed();
+        }
+      }));
     } catch (_) {
       _handleSocketClosed();
     }
