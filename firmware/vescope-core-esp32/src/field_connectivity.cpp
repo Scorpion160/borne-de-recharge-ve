@@ -117,6 +117,10 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
   WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
+  // Acces local disponible sans attendre une panne du reseau de l'ecole.
+  // L'arret explicite depuis /update reste possible jusqu'au prochain boot.
+  maintenance_ap_forced_ = true;
+  startFallbackAp();
   connectPrimaryWifi();
   Serial.printf("[VE-SCOPE] Wi-Fi primaire: %s (%s)\n", wifi_ssid_.c_str(), stored_wifi_ ? "NVS" : "firmware");
   if (portal_enabled_) {
@@ -165,6 +169,8 @@ void FieldConnectivity::configureWebOta() {
     doc["captive_portal_last_http_code"] = portal_last_http_code_;
     doc["fallback_ap_active"] = ap_active_;
     doc["maintenance_ap_forced"] = maintenance_ap_forced_;
+    doc["local_maintenance_active"] = localMaintenanceActive();
+    doc["ap_clients"] = ap_active_ ? WiFi.softAPgetStationNum() : 0;
     doc["fallback_ap_ssid"] = ap_active_ ? String(AP_SSID_PREFIX) + device_id_ : "";
     doc["fallback_ap_ip"] = apIp();
     doc["fallback_ap_channel"] = ap_active_ ? WiFi.channel() : FALLBACK_AP_CHANNEL;
@@ -216,7 +222,7 @@ void FieldConnectivity::configureWebOta() {
 <title>VE-SCOPE OTA</title><style>body{font-family:system-ui;background:#071321;color:#eaf2fa;padding:24px}main{max-width:620px;margin:auto;background:#0d1d2f;border:1px solid #29435d;border-radius:16px;padding:24px}input,button{width:100%;box-sizing:border-box;margin-top:12px;padding:12px;border-radius:10px}button{background:#1765a4;color:white;border:0;font-weight:700}.secondary{background:#29435d}small{color:#9fb2c6}</style></head>
 <body><main><h1>VE-SCOPE OTA</h1><p>Selectionnez le fichier <code>firmware.bin</code> compile pour cette carte.</p>
 <form method="POST" action="/update" enctype="multipart/form-data"><input type="file" name="firmware" accept=".bin" required><button type="submit">Mettre a jour</button></form>
-<hr><p><b>OTA terrain robuste</b></p><p><small>Si le Wi-Fi principal est faible, activez le point d'acces de maintenance, connectez le PC a <code>VE-SCOPE-borne-01</code>, puis ouvrez <code>http://192.168.4.1/update</code>.</small></p>
+<hr><p><b>OTA terrain robuste</b></p><p><small>Le point d acces demarre automatiquement. Tant qu un appareil y est connecte, les envois cloud sont suspendus ; les mesures restent journalisees localement. Deconnectez le PC du Wi-Fi de maintenance apres intervention pour reprendre les envois.</small></p><p><small>Si le Wi-Fi principal est faible, activez le point d'acces de maintenance, connectez le PC a <code>VE-SCOPE-borne-01</code>, puis ouvrez <code>http://192.168.4.1/update</code>.</small></p>
 <form method="POST" action="/api/maintenance/ap/start"><button class="secondary" type="submit">Activer AP maintenance</button></form>
 <form method="POST" action="/api/maintenance/ap/stop"><button class="secondary" type="submit">Arreter AP maintenance</button></form>
 </main></body></html>)HTML";
@@ -396,6 +402,7 @@ bool FieldConnectivity::authenticateCaptivePortal() {
 
 void FieldConnectivity::startFallbackAp() {
   if (ap_active_) return;
+  last_ap_attempt_ms_ = millis();
 
   // Garder le STA actif en parallele du point d'acces de maintenance. L'AP
   // reste disponible pour l'operateur tandis que la borne continue de tenter
@@ -451,7 +458,18 @@ void FieldConnectivity::startMdnsIfNeeded() {
 void FieldConnectivity::handle() {
   const uint32_t now = millis();
 
+  if (maintenance_ap_forced_ && !ap_active_ &&
+      now - last_ap_attempt_ms_ >= WIFI_RETRY_MS) {
+    startFallbackAp();
+  }
   if (ap_active_) dns_server.processNextRequest();
+
+  // Ne pas lancer de requetes portail synchrones ni de WiFi.begin pendant
+  // une intervention locale. Les transports cloud appliquent la meme regle.
+  if (localMaintenanceActive()) {
+    if (ota_started_) ArduinoOTA.handle();
+    return;
+  }
 
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected) {
@@ -530,6 +548,10 @@ void FieldConnectivity::handle() {
   }
 
   if (ota_started_) ArduinoOTA.handle();
+}
+
+bool FieldConnectivity::localMaintenanceActive() const {
+  return ap_active_ && WiFi.softAPgetStationNum() > 0;
 }
 
 bool FieldConnectivity::apActive() const { return ap_active_; }

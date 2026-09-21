@@ -230,6 +230,7 @@ String jsonString(JsonDocument& doc) {
 }
 
 bool cloudNetworkReady() {
+  if (connectivity.localMaintenanceActive()) return false;
   if (WiFi.status() != WL_CONNECTED) return false;
   if (connectivity.captivePortalEnabled() && !connectivity.captivePortalAuthenticated()) return false;
   return true;
@@ -715,7 +716,7 @@ void loop() {
   web.handleClient();
   connectivity.handle();
   connectMqttIfNeeded();
-  if (mqtt.connected()) mqtt.loop();
+  if (!connectivity.localMaintenanceActive() && mqtt.connected()) mqtt.loop();
   flushDurableOutbox();
 
   const uint32_t now = millis();

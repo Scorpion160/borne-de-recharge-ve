@@ -10,6 +10,7 @@ class FieldConnectivity {
   void begin(WebServer& server, const char* device_id);
   void handle();
   bool apActive() const;
+  bool localMaintenanceActive() const;
   bool maintenanceApForced() const;
   bool staConnected() const;
   String staIp() const;
@@ -40,6 +41,7 @@ class FieldConnectivity {
   String wifi_password_;
   String portal_user_;
   String portal_password_;
+  uint32_t last_ap_attempt_ms_ = 0;
   uint32_t offline_since_ms_ = 0;
   uint32_t last_wifi_retry_ms_ = 0;
   uint32_t recovery_started_ms_ = 0;
