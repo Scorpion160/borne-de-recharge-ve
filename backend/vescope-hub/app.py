@@ -4,6 +4,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -18,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from alarms import AlarmEngine
 from analytics import telemetry_series
-from exports import events_csv, sessions_csv, telemetry_csv, trusted_telemetry_csv
+from exports import events_csv, session_telemetry_csv, sessions_csv, telemetry_csv, trusted_telemetry_csv
 from storage import Database
 
 MQTT_HOST = os.getenv("VESCOPE_MQTT_HOST", "mqtt")
@@ -357,6 +358,24 @@ async def export_sessions_csv(device_id: str) -> Response:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     filename = f"vescope_{device_id}_sessions.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/devices/{device_id}/sessions/{session_id}/telemetry.csv")
+async def export_session_telemetry_csv(device_id: str, session_id: str) -> Response:
+    try:
+        content = await session_telemetry_csv(database, device_id, session_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    safe_device = re.sub(r"[^A-Za-z0-9_-]", "_", device_id)[:80]
+    safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", session_id)[:80]
+    filename = f"vescope_{safe_device}_{safe_name}_mesures.csv"
     return Response(
         content=content.encode("utf-8"),
         media_type="text/csv; charset=utf-8",

@@ -28,6 +28,11 @@ les composants redistribuables Microsoft Visual C++.
 Le workflow GitHub Actions « VE-SCOPE Windows » produit egalement ce ZIP et le
 propose en artefact sur la page de son execution.
 
+Dans l'onglet Sessions, le bouton « Telecharger les mesures de cette session »
+exporte les points de la recharge choisie, meme lorsque celle-ci est plus
+ancienne que la plage de 24 heures. Ce bouton utilise le nouvel endpoint du
+Hub : il faut aussi deployer la version correspondante du backend sur le VPS.
+
 Les identifiants HTTPS du site sont demandes a la premiere connexion.
 Apres une connexion valide, ils sont memorises de facon securisee sur le PC ;
 les ouvertures suivantes preremplissent les champs sans connexion automatique.

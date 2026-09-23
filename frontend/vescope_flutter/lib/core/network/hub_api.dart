@@ -131,6 +131,10 @@ class HubApi {
         '/api/v1/devices/${AppConfig.deviceId}/exports/sessions.csv',
       );
 
+  Uri sessionTelemetryCsvUri(String sessionId) => AppConfig.api(
+        '/api/v1/devices/${AppConfig.deviceId}/sessions/${Uri.encodeComponent(sessionId)}/telemetry.csv',
+      );
+
   Uri eventsCsvUri() => AppConfig.api(
         '/api/v1/devices/${AppConfig.deviceId}/exports/events.csv',
       );

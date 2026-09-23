@@ -51,8 +51,8 @@ class _DataPageState extends State<DataPage> {
         ranges: _ranges,
         onRangeChanged: (value) => setState(() => _range = value),
         note: _range == '1h' || _range == '24h'
-            ? 'Mesures détaillées'
-            : 'Export optimisé pour une période longue',
+            ? 'Période glissante ; pour une ancienne recharge, ouvrez l’onglet Sessions.'
+            : 'Moyennes par intervalle : identifiants de session absents. Export brut dans Sessions.',
         buttonLabel: 'Télécharger les mesures',
         onPressed: () => _open(_api.telemetryCsvUri(_range)),
       ),

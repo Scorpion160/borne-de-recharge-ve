@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/hub_api.dart';
 import '../../models/operational_models.dart';
@@ -57,6 +58,23 @@ class _SessionsPageState extends State<SessionsPage> {
       final queryMatches = query.isEmpty || item.sessionId.toLowerCase().contains(query);
       return stateMatches && queryMatches;
     }).toList(growable: false);
+  }
+
+  Future<void> _downloadMeasurements(String sessionId) async {
+    try {
+      final opened = await launchUrl(_api.sessionTelemetryCsvUri(sessionId), mode: LaunchMode.platformDefault);
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible d’ouvrir les mesures de cette session.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible d’ouvrir les mesures de cette session.')),
+        );
+      }
+    }
   }
 
   @override
@@ -247,6 +265,22 @@ class _SessionsPageState extends State<SessionsPage> {
             _detail('Courant max.', '${(selected.maxCurrentA ?? 0).toStringAsFixed(2)} A', Icons.speed_outlined),
             _detail('PF moyen', (selected.averagePowerFactor ?? 0).toStringAsFixed(3), Icons.speed_outlined),
             _detail('Durée', _duration(selected.durationS), Icons.timer_outlined),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: widget.controller.databaseConnected
+                    ? () => _downloadMeasurements(selected!.sessionId)
+                    : null,
+                icon: const Icon(Icons.download_outlined),
+                label: const Text('Télécharger les mesures de cette session'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Mesures brutes de cette recharge, sans limite de 24 heures. Le navigateur peut demander vos identifiants.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF8297AE)),
+            ),
             if (endReason != null) ...[
               const SizedBox(height: 12),
               Text('Cause de fin : $endReason', style: const TextStyle(color: Color(0xFF8EA4BC))),

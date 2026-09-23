@@ -215,6 +215,66 @@ async def trusted_telemetry_csv(database: Database, device_id: str, range_key: s
     return stream.getvalue()
 
 
+async def session_telemetry_csv(database: Database, device_id: str, session_id: str) -> str:
+    """Export raw AC samples for a session, including older untagged firmware data.
+
+    Untagged samples are associated by time only when there are no samples with
+    the exact session ID. The CSV records which association was used.
+    """
+    if not database.available or database.pool is None:
+        raise RuntimeError("PostgreSQL indisponible")
+
+    session = await database.pool.fetchrow(
+        """
+        SELECT started_at, ended_at FROM charging_sessions
+        WHERE device_id=$1 AND session_id=$2
+        """, device_id, session_id,
+    )
+    if session is None:
+        raise LookupError("Session introuvable pour cette borne")
+
+    columns = """
+        measured_at, received_at, sample_id, boot_id, sequence, session_id,
+        voltage_v, current_a, active_power_w, power_factor, frequency_hz,
+        energy_total_wh
+    """
+    rows = await database.pool.fetch(
+        f"SELECT {columns} FROM telemetry_ac "
+        "WHERE device_id=$1 AND session_id=$2 ORDER BY measured_at ASC, sequence ASC",
+        device_id, session_id,
+    )
+    association = "session_id"
+    if not rows and session["started_at"] is not None:
+        rows = await database.pool.fetch(
+            f"SELECT {columns} FROM telemetry_ac "
+            "WHERE device_id=$1 AND session_id IS NULL "
+            "AND measured_at >= $2 AND measured_at <= COALESCE($3, NOW()) "
+            "ORDER BY measured_at ASC, sequence ASC",
+            device_id, session["started_at"], session["ended_at"],
+        )
+        association = "plage_horaire"
+
+    if not rows:
+        raise ValueError("Aucune mesure AC conservée pour cette session")
+
+    stream, writer = _csv_buffer()
+    writer.writerow([
+        "timestamp_utc", "received_at_utc", "sample_id", "boot_id",
+        "sequence", "session_id", "voltage_v", "current_a", "active_power_w",
+        "power_factor", "frequency_hz", "energy_total_wh", "association",
+    ])
+    for row in rows:
+        writer.writerow([
+            row["measured_at"].isoformat(), row["received_at"].isoformat(),
+            row["sample_id"] or "", row["boot_id"] if row["boot_id"] is not None else "",
+            row["sequence"] if row["sequence"] is not None else "",
+            row["session_id"] or "", row["voltage_v"], row["current_a"],
+            row["active_power_w"], row["power_factor"], row["frequency_hz"],
+            row["energy_total_wh"], association,
+        ])
+    return stream.getvalue()
+
+
 async def sessions_csv(database: Database, device_id: str) -> str:
     if not database.available or database.pool is None:
         raise RuntimeError("PostgreSQL indisponible")
