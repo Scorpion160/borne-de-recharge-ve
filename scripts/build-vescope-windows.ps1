@@ -8,6 +8,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Creation du projet Windows en echec' }
     }
 
+    # flutter create may add its stock counter test, which references MyApp.
+    $SampleTest = 'test\widget_test.dart'
+    if (Test-Path $SampleTest) {
+        $SampleContent = Get-Content -Raw $SampleTest
+        if ($SampleContent.Contains('await tester.pumpWidget(const MyApp());') -and
+            $SampleContent.Contains("testWidgets('Counter increments smoke test'")) {
+            Remove-Item $SampleTest
+        }
+    }
+
     flutter pub get
     if ($LASTEXITCODE -ne 0) { throw 'flutter pub get a echoue' }
     dart run flutter_launcher_icons -f flutter_launcher_icons_windows.yaml
