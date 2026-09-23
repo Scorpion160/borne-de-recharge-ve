@@ -14,11 +14,13 @@ import '../pages/settings_page.dart';
 class VescopeShell extends StatefulWidget {
   const VescopeShell({
     super.key,
+    this.onLogout,
     required this.controller,
     required this.themeMode,
     required this.onToggleTheme,
   });
 
+  final VoidCallback? onLogout;
   final VescopeController controller;
   final ThemeMode themeMode;
   final VoidCallback onToggleTheme;
@@ -58,6 +60,7 @@ class _VescopeShellState extends State<VescopeShell> {
                 isDark: widget.themeMode != ThemeMode.light,
                 onToggleTheme: widget.onToggleTheme,
                 compact: mobile,
+                onLogout: widget.onLogout,
               ),
               body: _page(),
               bottomNavigationBar: mobile
@@ -197,6 +200,7 @@ class _MobileNav extends StatelessWidget {
 
 class _TopBar extends StatelessWidget implements PreferredSizeWidget {
   const _TopBar({
+    this.onLogout,
     required this.title,
     required this.state,
     required this.isDark,
@@ -204,6 +208,7 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
     required this.compact,
   });
 
+  final VoidCallback? onLogout;
   final String title;
   final StationState state;
   final bool isDark;
@@ -242,6 +247,9 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
         ],
       ),
       actions: [
+        if (onLogout != null) IconButton(
+          tooltip: 'Se déconnecter', onPressed: onLogout,
+          icon: const Icon(Icons.logout)),
         Container(
           margin: EdgeInsets.symmetric(vertical: compact ? 17 : 22),
           padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 13),

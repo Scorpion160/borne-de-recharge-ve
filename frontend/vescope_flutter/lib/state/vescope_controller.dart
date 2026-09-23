@@ -1,3 +1,4 @@
+import '../core/network/socket_connection.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -42,7 +43,9 @@ class VescopeController extends ChangeNotifier {
 
   Future<void> start() async {
     await _refreshHealth();
+    if (_disposed) return;
     final history = await _api.fetchRecentPower();
+    if (_disposed) return;
     powerHistory
       ..clear()
       ..addAll(history.length > 60 ? history.sublist(history.length - 60) : history);
@@ -65,7 +68,7 @@ class VescopeController extends ChangeNotifier {
     if (_disposed) return;
     _retryTimer?.cancel();
     try {
-      final channel = WebSocketChannel.connect(AppConfig.websocketUri);
+      final channel = connectHubSocket(AppConfig.websocketUri);
       _socket = channel;
       _socketSubscription = channel.stream.listen(
         _onSocketMessage,

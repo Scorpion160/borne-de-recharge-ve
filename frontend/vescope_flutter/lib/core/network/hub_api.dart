@@ -1,3 +1,4 @@
+import 'mobile_session.dart';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -15,7 +16,7 @@ class HubApi {
     try {
       final response = await http.get(
         AppConfig.api('/health'),
-        headers: const {'Accept': 'application/json'},
+        headers: {'Accept': 'application/json', ...MobileSession.headers},
       );
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -42,7 +43,7 @@ class HubApi {
         AppConfig.api(
           '/api/v1/devices/${AppConfig.deviceId}/telemetry/series?range=$range',
         ),
-        headers: const {'Accept': 'application/json'},
+        headers: {'Accept': 'application/json', ...MobileSession.headers},
       );
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -56,7 +57,7 @@ class HubApi {
     try {
       final response = await http.get(
         AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/sessions?limit=$limit'),
-        headers: const {'Accept': 'application/json'},
+        headers: {'Accept': 'application/json', ...MobileSession.headers},
       );
       if (response.statusCode < 200 || response.statusCode >= 300) return const [];
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -74,7 +75,7 @@ class HubApi {
     try {
       final response = await http.get(
         AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/events?limit=$limit'),
-        headers: const {'Accept': 'application/json'},
+        headers: {'Accept': 'application/json', ...MobileSession.headers},
       );
       if (response.statusCode < 200 || response.statusCode >= 300) return const [];
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -92,7 +93,7 @@ class HubApi {
     try {
       final response = await http.get(
         AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/settings'),
-        headers: const {'Accept': 'application/json'},
+        headers: {'Accept': 'application/json', ...MobileSession.headers},
       );
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       return DeviceSettings.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
@@ -104,7 +105,7 @@ class HubApi {
   Future<DeviceSettings> saveDeviceSettings(AlarmThresholds thresholds) async {
     final response = await http.put(
       AppConfig.api('/api/v1/devices/${AppConfig.deviceId}/settings'),
-      headers: const {'Accept': 'application/json', 'Content-Type': 'application/json'},
+      headers: {'Accept': 'application/json', 'Content-Type': 'application/json', ...MobileSession.headers},
       body: jsonEncode(thresholds.toJson()),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {

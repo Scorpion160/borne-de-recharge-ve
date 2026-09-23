@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import 'core/network/mobile_session.dart';
+import 'ui/auth/mobile_login.dart';
 import 'package:flutter/material.dart';
 
 import 'core/theme/vescope_theme.dart';
@@ -6,11 +9,12 @@ import 'ui/shell/vescope_shell.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const VescopeApp());
+  runApp(const MobileEntry());
 }
 
 class VescopeApp extends StatefulWidget {
-  const VescopeApp({super.key});
+  const VescopeApp({super.key, this.onLogout});
+  final VoidCallback? onLogout;
 
   @override
   State<VescopeApp> createState() => _VescopeAppState();
@@ -42,6 +46,7 @@ class _VescopeAppState extends State<VescopeApp> {
       darkTheme: VescopeTheme.dark(),
       themeMode: _themeMode,
       home: VescopeShell(
+        onLogout: widget.onLogout,
         controller: _controller,
         themeMode: _themeMode,
         onToggleTheme: () {
@@ -50,6 +55,31 @@ class _VescopeAppState extends State<VescopeApp> {
           });
         },
       ),
+    );
+  }
+}
+
+class MobileEntry extends StatefulWidget {
+  const MobileEntry({super.key});
+  @override
+  State<MobileEntry> createState() => _MobileEntryState();
+}
+
+class _MobileEntryState extends State<MobileEntry> {
+  bool _connected = false;
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb) return const VescopeApp();
+    if (_connected) {
+      return VescopeApp(onLogout: () {
+        MobileSession.clear();
+        setState(() => _connected = false);
+      });
+    }
+    return MaterialApp(
+      title: 'VE-SCOPE', debugShowCheckedModeBanner: false,
+      theme: VescopeTheme.dark(),
+      home: MobileLogin(onConnected: () => setState(() => _connected = true)),
     );
   }
 }
