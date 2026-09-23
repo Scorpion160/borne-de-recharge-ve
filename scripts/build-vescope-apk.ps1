@@ -16,14 +16,17 @@ try {
         $Permission.SetAttribute('name', $AndroidNs, 'android.permission.INTERNET')
         [void]$Manifest.manifest.AppendChild($Permission)
     }
-    $Manifest.manifest.application.SetAttribute('label', $AndroidNs, 'VE-SCOPE')
+    [void]$Manifest.manifest.application.SetAttribute('label', $AndroidNs, 'VE-SCOPE')
+    [void]$Manifest.manifest.application.SetAttribute('allowBackup', $AndroidNs, 'false')
     $Manifest.Save($ManifestPath)
 
     flutter pub get
     if ($LASTEXITCODE -ne 0) { throw 'flutter pub get a echoue' }
+    dart run flutter_launcher_icons
+    if ($LASTEXITCODE -ne 0) { throw 'Generation des icones Android en echec' }
     flutter analyze
     if ($LASTEXITCODE -ne 0) { throw 'flutter analyze a echoue' }
-    flutter test test/mobile_session_test.dart
+    flutter test test/mobile_session_test.dart test/saved_credentials_test.dart
     if ($LASTEXITCODE -ne 0) { throw 'Tests de connexion en echec' }
     flutter build apk --release --dart-define=VESCOPE_API_BASE=https://vescope.kerunjombor.net --dart-define=VESCOPE_WS_URL=wss://vescope.kerunjombor.net/api/v1/ws/devices/borne-01
     if ($LASTEXITCODE -ne 0) { throw 'Compilation APK en echec' }

@@ -1,7 +1,7 @@
 name: vescope_supervisor
 description: Client multiplateforme VE-SCOPE Supervisor.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -12,11 +12,23 @@ dependencies:
   http: any
   web_socket_channel: any
   url_launcher: any
+  flutter_secure_storage: ^11.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: any
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/branding/vescope_icon.png
+  adaptive_icon_background: '#081321'
+  adaptive_icon_foreground: assets/branding/vescope_icon.png
+  adaptive_icon_foreground_inset: 16
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/branding/vescope_icon.png

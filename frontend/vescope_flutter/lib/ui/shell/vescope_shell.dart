@@ -285,10 +285,8 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
 class _BrandMark extends StatelessWidget {
   const _BrandMark();
   @override
-  Widget build(BuildContext context) => Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(color: const Color(0xFF173C63), borderRadius: BorderRadius.circular(13)),
-        child: const Icon(Icons.bolt_outlined, color: Color(0xFF8EC8FF)),
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: BorderRadius.circular(13),
+        child: Image.asset('assets/branding/vescope_icon.png', width: 48, height: 48),
       );
 }
