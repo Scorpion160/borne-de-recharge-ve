@@ -270,7 +270,7 @@ class _SessionsPageState extends State<SessionsPage> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: widget.controller.databaseConnected
-                    ? () => _downloadMeasurements(selected!.sessionId)
+                    ? () => _downloadMeasurements(selected.sessionId)
                     : null,
                 icon: const Icon(Icons.download_outlined),
                 label: const Text('Télécharger les mesures de cette session'),
