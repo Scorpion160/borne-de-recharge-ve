@@ -55,6 +55,7 @@ Sur le VPS, vérifier `crontab -l` et installer **une seule fois** via
 0 2 * * * /bin/bash /opt/vescope/scripts/backup-vescope-postgres.sh >> /var/log/vescope-backup.log 2>&1
 ```
 
-Puis vérifier `crontab -l` et contrôler le journal et le dump après la nuit.
+Cette ligne s'exécute à 02:00 selon le fuseau local du VPS. Puis vérifier
+`crontab -l` et contrôler le journal et le dump après la nuit.
 La copie du dump sur le PC a confirmé une sauvegarde manuelle, pas la tâche
 quotidienne.
