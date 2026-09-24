@@ -5,7 +5,7 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.2.13-field";
+constexpr char FIRMWARE_VERSION[] = "0.2.14-field";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
