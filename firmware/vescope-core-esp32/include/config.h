@@ -5,7 +5,7 @@
 namespace vescope {
 
 constexpr char DEVICE_ID[] = "borne-01";
-constexpr char FIRMWARE_VERSION[] = "0.2.14-field";
+constexpr char FIRMWARE_VERSION[] = "0.2.15-field";
 
 // -----------------------------------------------------------------------------
 // Cible matérielle
@@ -60,7 +60,9 @@ constexpr uint32_t DURABLE_HEAD_CHECKPOINT_EVERY = 16;
 // secondes. Une nouvelle tentative ne doit jamais interrompre trop vite une
 // association déjà en cours.
 constexpr uint32_t WIFI_RETRY_MS = 30000;
-constexpr uint32_t WIFI_AP_STA_RETRY_MS = 60000;
+// Avec AP permanent, les tentatives STA hors connexion monopolisent la radio.
+// Reessayer de facon controlee toutes les 5 min pour laisser l'AP accessible.
+constexpr uint32_t WIFI_AP_STA_RETRY_MS = 300000;
 constexpr uint32_t WIFI_FALLBACK_AP_AFTER_MS = 60000;
 constexpr uint32_t WIFI_FALLBACK_AP_AFTER_PORTAL_MS = 90000;
 constexpr uint32_t WIFI_AP_STOP_AFTER_RECOVERY_MS = 30000;
