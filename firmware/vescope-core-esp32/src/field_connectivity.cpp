@@ -53,6 +53,8 @@ constexpr uint32_t PRIORITY_CONNECT_TIMEOUT_MS = 20000;
 constexpr uint32_t PRIORITY_SCAN_PERIOD_MS = 60000;
 constexpr uint32_t PRIORITY_RETRY_COOLDOWN_MS = 120000;
 constexpr uint32_t OTA_WINDOW_MS = 120000;
+constexpr uint32_t PRIORITY_SCAN_WITH_AP_CLIENT_MS = 300000;
+constexpr uint32_t AP_BOOT_GRACE_MS = 20000;
 
 String formUrlEncode(const String& input) {
   static const char hex[] = "0123456789ABCDEF";
@@ -100,8 +102,10 @@ void FieldConnectivity::loadWifiCredentials() {
   }
 
   // Les profils deja en NVS survivent a un flash OTA et USB sans effacement.
-  priority_ssid_ = wifi_prefs.getString("pssid", VESCOPE_PRIORITY_WIFI_SSID);
-  priority_password_ = wifi_prefs.getString("ppasswifi", VESCOPE_PRIORITY_WIFI_PASSWORD);
+  priority_ssid_ = wifi_prefs.isKey("pssid") ?
+      wifi_prefs.getString("pssid", "") : String(VESCOPE_PRIORITY_WIFI_SSID);
+  priority_password_ = wifi_prefs.isKey("ppasswifi") ?
+      wifi_prefs.getString("ppasswifi", "") : String(VESCOPE_PRIORITY_WIFI_PASSWORD);
 
   portal_enabled_ = wifi_prefs.getBool("portal", false);
   if (portal_enabled_) {
@@ -131,7 +135,9 @@ void FieldConnectivity::connectPrimaryWifi() {
 
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(true);
-  WiFi.setAutoReconnect(true);
+  // Les reconnexions sont cadencées dans handle() : eviter les scans
+  // supplementaires de la pile Wi-Fi en AP+STA.
+  WiFi.setAutoReconnect(false);
   WiFi.disconnect(false, false);
   wifi_target_ssid_ = priority_ssid_;
   portal_authenticated_ = false;
@@ -143,16 +149,16 @@ void FieldConnectivity::connectPrimaryWifi() {
 void FieldConnectivity::connectFallbackWifi() {
   if (wifi_ssid_.length() == 0 || (staConnected() && WiFi.SSID() == wifi_ssid_)) return;
 
-  // En mode maintenance, conserver l'AP tout en permettant au STA de se
-  // reconnecter tout seul. Cela evite qu'une coupure Wi-Fi temporaire impose
-  // un redemarrage manuel de la borne.
+  // Conserver l'AP et retenter le STA au rythme defini par handle(),
+  // sans laisser la pile declencher ses propres scans en boucle.
   WiFi.mode(ap_active_ ? WIFI_AP_STA : WIFI_STA);
   WiFi.setSleep(true);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
   WiFi.disconnect(false, false);
   wifi_target_ssid_ = wifi_ssid_;
   portal_authenticated_ = false;
   last_wifi_retry_ms_ = millis();
+  Serial.printf("[VE-SCOPE] Tentative Wi-Fi secours: %s\n", wifi_ssid_.c_str());
   WiFi.begin(wifi_ssid_.c_str(), wifi_password_.c_str());
 }
 
@@ -162,10 +168,12 @@ void FieldConnectivity::startPriorityScan(uint32_t now) {
       (!staConnected() && wifi_target_ssid_ == priority_ssid_ &&
        now - last_wifi_retry_ms_ < PRIORITY_CONNECT_TIMEOUT_MS) ||
       (priority_cooldown_ms_ && now - priority_cooldown_ms_ < PRIORITY_RETRY_COOLDOWN_MS) ||
-      (last_priority_scan_ms_ && now - last_priority_scan_ms_ < PRIORITY_SCAN_PERIOD_MS)) return;
+      (last_priority_scan_ms_ && now - last_priority_scan_ms_ <
+       (ap_active_ && WiFi.softAPgetStationNum() > 0 ?
+        PRIORITY_SCAN_WITH_AP_CLIENT_MS : PRIORITY_SCAN_PERIOD_MS))) return;
   last_priority_scan_ms_ = now;
   // Un scan asynchrone garde l'interface HTTP et l'acquisition reactives.
-  priority_scanning_ = WiFi.scanNetworks(true) == WIFI_SCAN_RUNNING;
+  priority_scanning_ = WiFi.scanNetworks(true, false, false, 120) == WIFI_SCAN_RUNNING;
 }
 
 void FieldConnectivity::processPriorityScan(uint32_t now) {
@@ -192,17 +200,34 @@ void FieldConnectivity::begin(WebServer& server, const char* device_id) {
 
   loadWifiCredentials();
 
+  // Journal d'association utile lors des interventions USB. Le callback ne
+  // modifie pas l'etat partage : il s'execute sur la tache evenement Wi-Fi.
+  WiFi.onEvent([](WiFiEvent_t event) {
+    switch (event) {
+      case ARDUINO_EVENT_WIFI_AP_START: Serial.println("[VE-SCOPE] AP radio: demarre"); break;
+      case ARDUINO_EVENT_WIFI_AP_STOP: Serial.println("[VE-SCOPE] AP radio: arrete"); break;
+      case ARDUINO_EVENT_WIFI_AP_STACONNECTED: Serial.println("[VE-SCOPE] AP: client associe"); break;
+      case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: Serial.println("[VE-SCOPE] AP: client deconnecte"); break;
+      case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED: Serial.println("[VE-SCOPE] AP: adresse client attribuee"); break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED: Serial.println("[VE-SCOPE] STA: associe au reseau"); break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: Serial.println("[VE-SCOPE] STA: deconnecte du reseau"); break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP: Serial.println("[VE-SCOPE] STA: adresse IP obtenue"); break;
+      default: break;
+    }
+  });
+
   WiFi.persistent(false);
   // ESP32 classique : lorsque BLE et Wi-Fi sont actifs simultanement,
   // le modem sleep doit rester actif pour la coexistence radio.
   WiFi.setSleep(true);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_STA);
   // Acces local disponible sans attendre une panne du reseau de l'ecole.
   // L'arret explicite depuis /update reste possible jusqu'au prochain boot.
   maintenance_ap_forced_ = true;
   startFallbackAp();
-  connectPrimaryWifi();
+  // Accorder une courte fenetre d'association locale avant les scans STA.
+  boot_wifi_grace_ms_ = millis();
   Serial.printf("[VE-SCOPE] Wi-Fi secours: %s (%s); prioritaire: %s\n",
       wifi_ssid_.c_str(), stored_wifi_ ? "NVS" : "firmware",
       priorityConfigured() ? priority_ssid_.c_str() : "non configure");
@@ -523,7 +548,7 @@ void FieldConnectivity::startFallbackAp() {
   // Garder le STA actif en parallele du point d'acces de maintenance. L'AP
   // reste disponible pour l'operateur tandis que la borne continue de tenter
   // automatiquement son Wi-Fi primaire.
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(true);
   delay(100);
@@ -560,7 +585,7 @@ void FieldConnectivity::stopFallbackAp() {
   recovery_started_ms_ = 0;
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
 
   if (WiFi.status() != WL_CONNECTED) connectPrimaryWifi();
   Serial.println("[VE-SCOPE] AP maintenance/secours arrete: Wi-Fi primaire conserve");
@@ -654,6 +679,12 @@ void FieldConnectivity::handle() {
     recovery_started_ms_ = 0;
 
     if (offline_since_ms_ == 0) offline_since_ms_ = now;
+
+    if (wifi_target_ssid_.length() == 0) {
+      if (now - boot_wifi_grace_ms_ >= AP_BOOT_GRACE_MS) connectPrimaryWifi();
+      if (ota_started_) ArduinoOTA.handle();
+      return;
+    }
 
     if (wifi_target_ssid_ == priority_ssid_ && priorityConfigured() &&
         now - last_wifi_retry_ms_ >= PRIORITY_CONNECT_TIMEOUT_MS) {
