@@ -31,6 +31,11 @@ class FieldConnectivity {
   void configureWifiPortal();
   void loadWifiCredentials();
   void connectPrimaryWifi();
+  void connectFallbackWifi();
+  void startPriorityScan(uint32_t now);
+  void processPriorityScan(uint32_t now);
+  bool priorityConfigured() const;
+  bool portalRequired() const;
   bool internetProbe();
   bool authenticateCaptivePortal();
 
@@ -39,11 +44,21 @@ class FieldConnectivity {
   String mdns_host_;
   String wifi_ssid_;
   String wifi_password_;
+  String priority_ssid_;
+  String priority_password_;
+  String wifi_target_ssid_;
   String portal_user_;
   String portal_password_;
   uint32_t last_ap_attempt_ms_ = 0;
   uint32_t offline_since_ms_ = 0;
   uint32_t last_wifi_retry_ms_ = 0;
+  uint32_t boot_wifi_grace_ms_ = 0;
+  uint32_t last_priority_scan_ms_ = 0;
+  uint32_t priority_cooldown_ms_ = 0;
+  uint32_t ota_window_until_ms_ = 0;
+  bool priority_scanning_ = false;
+  bool ota_upload_active_ = false;
+  bool ota_upload_success_ = false;
   uint32_t recovery_started_ms_ = 0;
   uint32_t last_portal_probe_ms_ = 0;
   uint32_t last_portal_attempt_ms_ = 0;

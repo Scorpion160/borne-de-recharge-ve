@@ -6,6 +6,11 @@
 #define VESCOPE_WIFI_SSID "VOTRE_WIFI"
 #define VESCOPE_WIFI_PASSWORD "VOTRE_MOT_DE_PASSE"
 
+// Partage de connexion prioritaire. Configurer son mot de passe uniquement
+// dans secrets.h prive ou via l'AP /wifi ; jamais dans ce fichier versionne.
+#define VESCOPE_PRIORITY_WIFI_SSID "SN"
+#define VESCOPE_PRIORITY_WIFI_PASSWORD ""
+
 // MQTT cloud principal.
 #define VESCOPE_MQTT_HOST "mqtt.vescope.kerunjombor.net"
 #define VESCOPE_MQTT_PORT 8883
