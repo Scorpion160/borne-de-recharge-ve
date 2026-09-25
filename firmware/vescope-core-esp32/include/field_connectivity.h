@@ -52,6 +52,7 @@ class FieldConnectivity {
   uint32_t last_ap_attempt_ms_ = 0;
   uint32_t offline_since_ms_ = 0;
   uint32_t last_wifi_retry_ms_ = 0;
+  uint32_t boot_wifi_grace_ms_ = 0;
   uint32_t last_priority_scan_ms_ = 0;
   uint32_t priority_cooldown_ms_ = 0;
   uint32_t ota_window_until_ms_ = 0;
